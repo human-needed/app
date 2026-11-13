@@ -4,7 +4,9 @@
 //! nothing if the app isn't running. The other commands are for people and skills and print JSON.
 
 use hn_core::endpoint::ipc_endpoint;
-use hn_core::event::{session_from_hook_json, valid_agent, valid_session, AgentState, Event, Request};
+use hn_core::event::{
+    session_from_hook_json, valid_agent, valid_session, AgentState, Event, Request,
+};
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -39,12 +41,16 @@ fn main() {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Parses `hn event` args. Returns None on anything invalid (silently ignored).
 fn parse_event(args: &[String], stdin: impl FnOnce() -> Option<Vec<u8>>) -> Option<Event> {
-    let (mut agent, mut state, mut session, mut ttl, mut use_stdin) = (None, None, None, None, false);
+    let (mut agent, mut state, mut session, mut ttl, mut use_stdin) =
+        (None, None, None, None, false);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -61,9 +67,18 @@ fn parse_event(args: &[String], stdin: impl FnOnce() -> Option<Vec<u8>>) -> Opti
     if use_stdin && session.is_none() {
         session = stdin().and_then(|b| session_from_hook_json(&b));
     }
-    let session = session.filter(|s| valid_session(s)).unwrap_or_else(|| "default".into());
+    let session = session
+        .filter(|s| valid_session(s))
+        .unwrap_or_else(|| "default".into());
     let ttl = ttl.filter(|t| (1..=86_400).contains(t));
-    Some(Event { v: 1, agent, session, state, ts: now_ms(), ttl })
+    Some(Event {
+        v: 1,
+        agent,
+        session,
+        state,
+        ts: now_ms(),
+        ttl,
+    })
 }
 
 /// Reads the hook's JSON from stdin, at most 16 KB, giving up after `wait`.
@@ -79,8 +94,12 @@ fn read_stdin(wait: Duration) -> Option<Vec<u8>> {
 
 fn event(args: &[String]) {
     let start = Instant::now();
-    let Some(ev) = parse_event(args, || read_stdin(Duration::from_millis(400))) else { return };
-    let Ok(line) = serde_json::to_string(&ev) else { return };
+    let Some(ev) = parse_event(args, || read_stdin(Duration::from_millis(400))) else {
+        return;
+    };
+    let Ok(line) = serde_json::to_string(&ev) else {
+        return;
+    };
     let remaining = EVENT_BUDGET.saturating_sub(start.elapsed());
     // Run the send on a thread so a stuck pipe can never hold the agent past the budget.
     let (tx, rx) = mpsc::channel();
@@ -95,13 +114,18 @@ fn event(args: &[String]) {
 }
 
 fn request(cmd: &str, args: Vec<String>) -> i32 {
-    let req = Request { v: 1, cmd: cmd.into(), args };
+    let req = Request {
+        v: 1,
+        cmd: cmd.into(),
+        args,
+    };
     let line = serde_json::to_string(&req).unwrap();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let result = (|| {
             let mut conn = connect(Duration::from_secs(2)).ok_or("app not running")?;
-            conn.write_all(format!("{line}\n").as_bytes()).map_err(|_| "app not reachable")?;
+            conn.write_all(format!("{line}\n").as_bytes())
+                .map_err(|_| "app not reachable")?;
             conn.flush().map_err(|_| "app not reachable")?;
             let mut reply = Vec::new();
             let mut byte = [0u8; 1];
@@ -133,7 +157,10 @@ fn request(cmd: &str, args: Vec<String>) -> i32 {
             1
         }
         Err(_) => {
-            println!("{}", serde_json::json!({ "ok": false, "error": "app did not answer" }));
+            println!(
+                "{}",
+                serde_json::json!({ "ok": false, "error": "app did not answer" })
+            );
             1
         }
     }
@@ -145,7 +172,11 @@ fn connect(budget: Duration) -> Option<std::fs::File> {
     let path = ipc_endpoint();
     let deadline = Instant::now() + budget;
     loop {
-        match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+        {
             Ok(f) => return Some(f),
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(20));
@@ -173,8 +204,15 @@ mod tests {
 
     #[test]
     fn event_args() {
-        let e = parse_event(&args("--agent claude --state needs --session abc --ttl 60"), || None).unwrap();
-        assert_eq!((e.agent.as_str(), e.state, e.session.as_str(), e.ttl), ("claude", AgentState::Needs, "abc", Some(60)));
+        let e = parse_event(
+            &args("--agent claude --state needs --session abc --ttl 60"),
+            || None,
+        )
+        .unwrap();
+        assert_eq!(
+            (e.agent.as_str(), e.state, e.session.as_str(), e.ttl),
+            ("claude", AgentState::Needs, "abc", Some(60))
+        );
     }
 
     #[test]
@@ -188,7 +226,10 @@ mod tests {
 
     #[test]
     fn falls_back_to_default_session() {
-        let e = parse_event(&args("--agent codex --state done --stdin-json"), || Some(b"nope".to_vec())).unwrap();
+        let e = parse_event(&args("--agent codex --state done --stdin-json"), || {
+            Some(b"nope".to_vec())
+        })
+        .unwrap();
         assert_eq!(e.session, "default");
     }
 

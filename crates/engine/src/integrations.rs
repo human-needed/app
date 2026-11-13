@@ -30,13 +30,21 @@ pub struct Env {
 
 impl Env {
     pub fn current() -> Self {
-        Self { home: dirs::home_dir(), claude_dir: crate::paths::claude_dir(), path: std::env::var_os("PATH") }
+        Self {
+            home: dirs::home_dir(),
+            claude_dir: crate::paths::claude_dir(),
+            path: std::env::var_os("PATH"),
+        }
     }
 }
 
 /// Finds an executable on PATH (Windows: .exe, .cmd, .bat too).
 pub fn which(name: &str, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
-    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
+    let exts: &[&str] = if cfg!(windows) {
+        &[".exe", ".cmd", ".bat", ""]
+    } else {
+        &[""]
+    };
     for dir in std::env::split_paths(path?) {
         for ext in exts {
             let p = dir.join(format!("{name}{ext}"));
@@ -49,11 +57,18 @@ pub fn which(name: &str, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
 }
 
 fn claude_installed(claude_dir: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(claude_dir.join("settings.json")) else { return false };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
+    let Ok(text) = std::fs::read_to_string(claude_dir.join("settings.json")) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
     v.get("enabledPlugins")
         .and_then(|p| p.as_object())
-        .is_some_and(|m| m.iter().any(|(k, on)| k.starts_with("humanneeded@") && on.as_bool() == Some(true)))
+        .is_some_and(|m| {
+            m.iter()
+                .any(|(k, on)| k.starts_with("humanneeded@") && on.as_bool() == Some(true))
+        })
 }
 
 pub fn list(env: &Env) -> Vec<Integration> {
@@ -96,12 +111,22 @@ fn run(exe: &Path, args: &[&str]) -> Result<String, String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = cmd.output().map_err(|e| format!("{}: {e}", exe.display()))?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let out = cmd
+        .output()
+        .map_err(|e| format!("{}: {e}", exe.display()))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     if out.status.success() {
         Ok(text)
     } else {
-        Err(format!("`claude {}` failed: {}", args.join(" "), text.trim()))
+        Err(format!(
+            "`claude {}` failed: {}",
+            args.join(" "),
+            text.trim()
+        ))
     }
 }
 
@@ -109,10 +134,14 @@ fn run(exe: &Path, args: &[&str]) -> Result<String, String> {
 pub fn install(id: &str, env: &Env) -> Result<String, String> {
     match id {
         "claude" => {
-            let exe = which("claude", env.path.as_deref()).ok_or("Claude Code's `claude` command wasn't found")?;
+            let exe = which("claude", env.path.as_deref())
+                .ok_or("Claude Code's `claude` command wasn't found")?;
             // Adding an already-known marketplace fails harmlessly; install is what matters.
             let _ = run(&exe, &["plugin", "marketplace", "add", CLAUDE_MARKETPLACE]);
-            run(&exe, &["plugin", "install", CLAUDE_PLUGIN, "--scope", "user"])?;
+            run(
+                &exe,
+                &["plugin", "install", CLAUDE_PLUGIN, "--scope", "user"],
+            )?;
             Ok("Installed. Restart Claude Code sessions to load it.".into())
         }
         _ => Err("not available yet".into()),
@@ -122,7 +151,8 @@ pub fn install(id: &str, env: &Env) -> Result<String, String> {
 pub fn uninstall(id: &str, env: &Env) -> Result<String, String> {
     match id {
         "claude" => {
-            let exe = which("claude", env.path.as_deref()).ok_or("Claude Code's `claude` command wasn't found")?;
+            let exe = which("claude", env.path.as_deref())
+                .ok_or("Claude Code's `claude` command wasn't found")?;
             run(&exe, &["plugin", "uninstall", CLAUDE_PLUGIN])?;
             Ok("Removed.".into())
         }
@@ -139,27 +169,47 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let cdir = home.path().join(".claude");
         std::fs::create_dir(&cdir).unwrap();
-        let env = Env { home: Some(home.path().into()), claude_dir: Some(cdir.clone()), path: None };
+        let env = Env {
+            home: Some(home.path().into()),
+            claude_dir: Some(cdir.clone()),
+            path: None,
+        };
         let c = &list(&env)[0];
         assert!(c.detected && !c.installed && !c.can_install);
 
-        std::fs::write(cdir.join("settings.json"), r#"{"enabledPlugins":{"humanneeded@humanneeded":false}}"#).unwrap();
+        std::fs::write(
+            cdir.join("settings.json"),
+            r#"{"enabledPlugins":{"humanneeded@humanneeded":false}}"#,
+        )
+        .unwrap();
         assert!(!list(&env)[0].installed);
-        std::fs::write(cdir.join("settings.json"), r#"{"enabledPlugins":{"humanneeded@humanneeded":true}}"#).unwrap();
+        std::fs::write(
+            cdir.join("settings.json"),
+            r#"{"enabledPlugins":{"humanneeded@humanneeded":true}}"#,
+        )
+        .unwrap();
         assert!(list(&env)[0].installed);
     }
 
     #[test]
     fn nothing_detected_in_empty_home() {
         let home = tempfile::tempdir().unwrap();
-        let env = Env { home: Some(home.path().into()), claude_dir: Some(home.path().join(".claude")), path: None };
+        let env = Env {
+            home: Some(home.path().into()),
+            claude_dir: Some(home.path().join(".claude")),
+            path: None,
+        };
         assert!(list(&env).iter().all(|i| !i.detected && !i.installed));
     }
 
     #[test]
     fn which_finds_executables() {
         let d = tempfile::tempdir().unwrap();
-        let name = if cfg!(windows) { "claude.cmd" } else { "claude" };
+        let name = if cfg!(windows) {
+            "claude.cmd"
+        } else {
+            "claude"
+        };
         std::fs::write(d.path().join(name), "").unwrap();
         let path = std::env::join_paths([d.path()]).unwrap();
         assert!(which("claude", Some(&path)).is_some());

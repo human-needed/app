@@ -43,5 +43,11 @@ async fn main() {
 fn chrono_like() -> String {
     let ms = hn_sim::now_ms();
     let s = (ms / 1000) % 86_400;
-    format!("{:02}:{:02}:{:02}.{:03}Z", s / 3600, (s / 60) % 60, s % 60, ms % 1000)
+    format!(
+        "{:02}:{:02}:{:02}.{:03}Z",
+        s / 3600,
+        (s / 60) % 60,
+        s % 60,
+        ms % 1000
+    )
 }

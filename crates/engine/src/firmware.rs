@@ -36,7 +36,11 @@ pub struct Available {
 async fn fetch(url: &str, max: usize) -> Result<Vec<u8>, String> {
     if let Some(path) = url.strip_prefix("file://") {
         let path = path.trim_start_matches('/');
-        let p = if cfg!(windows) { PathBuf::from(path) } else { PathBuf::from(format!("/{path}")) };
+        let p = if cfg!(windows) {
+            PathBuf::from(path)
+        } else {
+            PathBuf::from(format!("/{path}"))
+        };
         return std::fs::read(&p).map_err(|e| format!("{url}: {e}"));
     }
     if !url.starts_with("https://") && !url.starts_with("http://127.0.0.1") {
@@ -47,11 +51,18 @@ async fn fetch(url: &str, max: usize) -> Result<Vec<u8>, String> {
         .user_agent(concat!("HumanNeeded-app/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.get(url).send().await.map_err(|e| format!("download failed: {e}"))?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("download failed: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("download failed: HTTP {}", resp.status()));
     }
-    let bytes = resp.bytes().await.map_err(|e| format!("download failed: {e}"))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("download failed: {e}"))?;
     if bytes.len() > max {
         return Err("file too large".into());
     }
@@ -59,25 +70,40 @@ async fn fetch(url: &str, max: usize) -> Result<Vec<u8>, String> {
 }
 
 pub fn parse_latest(json: &[u8], board: &str) -> Result<Option<Entry>, String> {
-    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| format!("bad latest.json: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(json).map_err(|e| format!("bad latest.json: {e}"))?;
     match v.get(board) {
         None => Ok(None),
-        Some(e) => serde_json::from_value(e.clone()).map(Some).map_err(|e| format!("bad latest.json entry: {e}")),
+        Some(e) => serde_json::from_value(e.clone())
+            .map(Some)
+            .map_err(|e| format!("bad latest.json entry: {e}")),
     }
 }
 
 pub async fn check(latest_url: &str, hello: &Hello) -> Result<Available, String> {
     let json = fetch(latest_url, 64 * 1024).await?;
     let latest = parse_latest(&json, &hello.board)?;
-    let newer = latest.as_ref().is_some_and(|e| is_newer(&e.version, &hello.fw));
-    Ok(Available { current: hello.fw.clone(), latest, newer })
+    let newer = latest
+        .as_ref()
+        .is_some_and(|e| is_newer(&e.version, &hello.fw));
+    Ok(Available {
+        current: hello.fw.clone(),
+        latest,
+        newer,
+    })
 }
 
 pub fn verify(data: &[u8], sha256: Option<&str>) -> Result<(), String> {
-    let expected = sha256.ok_or("latest.json has no SHA-256 for this firmware; not installing it")?;
-    let actual: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
+    let expected =
+        sha256.ok_or("latest.json has no SHA-256 for this firmware; not installing it")?;
+    let actual: String = Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if !actual.eq_ignore_ascii_case(expected.trim()) {
-        return Err(format!("SHA-256 mismatch: expected {expected}, got {actual}"));
+        return Err(format!(
+            "SHA-256 mismatch: expected {expected}, got {actual}"
+        ));
     }
     if data.len() < 512 || data[..8] != UF2_MAGIC {
         return Err("not a UF2 file".into());
@@ -88,7 +114,9 @@ pub fn verify(data: &[u8], sha256: Option<&str>) -> Result<(), String> {
 /// The RPI-RP2 drive: a volume whose INFO_UF2.TXT says `RPI-RP2`.
 pub fn find_rp2_drive(fake: Option<&Path>) -> Option<PathBuf> {
     let is_rp2 = |dir: &Path| {
-        std::fs::read_to_string(dir.join("INFO_UF2.TXT")).map(|t| t.contains("RPI-RP2")).unwrap_or(false)
+        std::fs::read_to_string(dir.join("INFO_UF2.TXT"))
+            .map(|t| t.contains("RPI-RP2"))
+            .unwrap_or(false)
     };
     if let Some(dir) = fake {
         return is_rp2(dir).then(|| dir.to_path_buf());
@@ -106,7 +134,8 @@ fn candidate_drives() -> Vec<PathBuf> {
         .filter_map(|i| {
             let root = format!("{}:\\", (b'A' + i as u8) as char);
             let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
-            (unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_REMOVABLE).then(|| PathBuf::from(root))
+            (unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_REMOVABLE)
+                .then(|| PathBuf::from(root))
         })
         .collect()
 }
@@ -119,10 +148,16 @@ fn candidate_drives() -> Vec<PathBuf> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn candidate_drives() -> Vec<PathBuf> {
     let user = std::env::var("USER").unwrap_or_default();
-    vec![PathBuf::from(format!("/media/{user}/RPI-RP2")), PathBuf::from(format!("/run/media/{user}/RPI-RP2"))]
+    vec![
+        PathBuf::from(format!("/media/{user}/RPI-RP2")),
+        PathBuf::from(format!("/run/media/{user}/RPI-RP2")),
+    ]
 }
 
-pub(crate) async fn update(engine: &Engine, progress: &(dyn Fn(&str) + Send + Sync)) -> Result<String, String> {
+pub(crate) async fn update(
+    engine: &Engine,
+    progress: &(dyn Fn(&str) + Send + Sync),
+) -> Result<String, String> {
     let step = |s: &str| {
         log!("firmware: {s}");
         progress(s);
@@ -130,7 +165,10 @@ pub(crate) async fn update(engine: &Engine, progress: &(dyn Fn(&str) + Send + Sy
     let puck = engine.puck_info().ok_or("puck not connected")?;
     step("Checking for the latest firmware");
     let avail = check(&engine.config.latest_url, &puck.hello).await?;
-    let entry = avail.latest.ok_or(format!("no firmware published for board {}", puck.hello.board))?;
+    let entry = avail.latest.ok_or(format!(
+        "no firmware published for board {}",
+        puck.hello.board
+    ))?;
     if !avail.newer {
         return Err(format!("already up to date ({})", puck.hello.fw));
     }
@@ -152,7 +190,10 @@ async fn install(
     events: &mut tokio::sync::broadcast::Receiver<LinkEvent>,
     step: &(dyn Fn(&str) + Send + Sync),
 ) -> Result<String, String> {
-    engine.puck("BOOTSEL").await.map_err(|e| format!("BOOTSEL failed: {e}"))?;
+    engine
+        .puck("BOOTSEL")
+        .await
+        .map_err(|e| format!("BOOTSEL failed: {e}"))?;
     let fake = engine.config.uf2_drive.clone();
     step("Waiting for the RPI-RP2 drive");
     let mut drive = None;
@@ -164,7 +205,10 @@ async fn install(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let drive = drive.ok_or("the RPI-RP2 drive didn't appear (unplug the puck, hold its button while plugging it in, then try again)")?;
-    let name = Path::new(&entry.file).file_name().ok_or("bad file name")?.to_owned();
+    let name = Path::new(&entry.file)
+        .file_name()
+        .ok_or("bad file name")?
+        .to_owned();
     step(&format!("Copying firmware to {}", drive.display()));
     let target = drive.join(name);
     let bytes = data.to_vec();
@@ -183,7 +227,10 @@ async fn install(
                 step(&format!("Updated to {}", entry.version));
                 return Ok(entry.version.clone());
             }
-            return Err(format!("puck came back with {} instead of {}", hello.fw, entry.version));
+            return Err(format!(
+                "puck came back with {} instead of {}",
+                hello.fw, entry.version
+            ));
         }
     }
 }
@@ -199,7 +246,10 @@ mod tests {
     }
 
     fn sha(d: &[u8]) -> String {
-        Sha256::digest(d).iter().map(|b| format!("{b:02x}")).collect()
+        Sha256::digest(d)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     #[test]
@@ -209,7 +259,9 @@ mod tests {
         assert!(verify(&d, None).is_err());
         assert!(verify(&d, Some(&"0".repeat(64))).is_err());
         let junk = vec![1u8; 600];
-        assert!(verify(&junk, Some(&sha(&junk))).unwrap_err().contains("UF2"));
+        assert!(verify(&junk, Some(&sha(&junk)))
+            .unwrap_err()
+            .contains("UF2"));
     }
 
     #[test]

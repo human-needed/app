@@ -28,12 +28,16 @@ pub struct Config {
 impl Config {
     /// Defaults, overridable with `HN_PUCK`, `HN_IPC`, `HN_LATEST_URL`, `HN_UF2_DRIVE`.
     pub fn from_env() -> Self {
-        let puck = std::env::var("HN_PUCK").ok().and_then(|s| PuckTarget::parse(&s)).unwrap_or(PuckTarget::Auto);
+        let puck = std::env::var("HN_PUCK")
+            .ok()
+            .and_then(|s| PuckTarget::parse(&s))
+            .unwrap_or(PuckTarget::Auto);
         Self {
             puck,
             endpoint: hn_core::endpoint::ipc_endpoint(),
             claude_dir: paths::claude_dir(),
-            latest_url: std::env::var("HN_LATEST_URL").unwrap_or_else(|_| DEFAULT_LATEST_URL.into()),
+            latest_url: std::env::var("HN_LATEST_URL")
+                .unwrap_or_else(|_| DEFAULT_LATEST_URL.into()),
             uf2_drive: std::env::var_os("HN_UF2_DRIVE").map(PathBuf::from),
         }
     }
@@ -71,7 +75,8 @@ impl Engine {
     /// Starts IPC, the puck link and the loop. Fails if another instance owns the IPC endpoint.
     pub async fn start(config: Config) -> Result<Self, String> {
         let (in_tx, in_rx) = mpsc::channel(256);
-        ipc::serve(config.endpoint.clone(), in_tx).map_err(|e| format!("IPC {}: {e}", config.endpoint.display()))?;
+        ipc::serve(config.endpoint.clone(), in_tx)
+            .map_err(|e| format!("IPC {}: {e}", config.endpoint.display()))?;
         let (ev_tx, ev_rx) = mpsc::channel(32);
         let link = Link::start(config.puck.clone(), ev_tx);
         let (changes, _) = watch::channel(0);
@@ -89,7 +94,11 @@ impl Engine {
             changes: Arc::new(changes),
             link_events: Arc::new(bcast),
         };
-        log!("app {APP_VERSION} started; ipc {} puck {}", engine.config.endpoint.display(), engine.config.puck.describe());
+        log!(
+            "app {APP_VERSION} started; ipc {} puck {}",
+            engine.config.endpoint.display(),
+            engine.config.puck.describe()
+        );
         tokio::spawn(engine.clone().run(in_rx, ev_rx));
         Ok(engine)
     }
@@ -119,7 +128,7 @@ impl Engine {
                 }
                 _ = tick.tick() => {
                     ticks += 1;
-                    if ticks % 2 == 0 {
+                    if ticks.is_multiple_of(2) {
                         let dir = self.config.claude_dir.clone();
                         let obs = tokio::task::spawn_blocking(move || liveness::observe(dir.as_deref())).await.unwrap_or_default();
                         let changed = self.shared.lock().unwrap().table.check(&obs, now_ms());
@@ -135,7 +144,11 @@ impl Engine {
         match ev {
             LinkEvent::Connected { hello, port } => {
                 if !hello.compatible() {
-                    log!("puck: firmware {} speaks protocol {}, app needs 2: update the firmware", hello.fw, hello.proto);
+                    log!(
+                        "puck: firmware {} speaks protocol {}, app needs 2: update the firmware",
+                        hello.fw,
+                        hello.proto
+                    );
                 }
                 self.shared.lock().unwrap().puck = Some(PuckInfo { hello, port });
                 self.send_snapshot(true);
@@ -230,10 +243,18 @@ impl Engine {
     pub async fn status(&self) -> Value {
         let (puck, sessions, snapshot, updating) = {
             let s = self.shared.lock().unwrap();
-            (s.puck.clone(), s.table.list(), s.table.snapshot(), s.updating.clone())
+            (
+                s.puck.clone(),
+                s.table.list(),
+                s.table.snapshot(),
+                s.updating.clone(),
+            )
         };
         let puck_status = if puck.as_ref().is_some_and(|p| p.hello.compatible()) {
-            self.puck("STATUS").await.ok().and_then(|r| serde_json::from_str::<Value>(&r).ok())
+            self.puck("STATUS")
+                .await
+                .ok()
+                .and_then(|r| serde_json::from_str::<Value>(&r).ok())
         } else {
             None
         };
@@ -269,14 +290,21 @@ impl Engine {
     }
 
     /// Downloads, verifies and installs a firmware (D-044). `progress` gets short status lines.
-    pub async fn update_firmware(&self, progress: impl Fn(&str) + Send + Sync) -> Result<String, String> {
+    pub async fn update_firmware(
+        &self,
+        progress: impl Fn(&str) + Send + Sync,
+    ) -> Result<String, String> {
         firmware::update(self, &progress).await
     }
 
     /// Clears the light before the app exits (lease would clear it within 30 s anyway).
     pub async fn shutdown(&self) {
         if self.puck_ready() {
-            let _ = tokio::time::timeout(Duration::from_secs(2), self.link.request(snap_line(LEASE_S, &[]))).await;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                self.link.request(snap_line(LEASE_S, &[])),
+            )
+            .await;
         }
         log!("app stopped");
     }

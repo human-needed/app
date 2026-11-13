@@ -8,8 +8,8 @@
 
 pub mod puck;
 
-pub use puck::SimPuck;
 use puck::Pending;
+pub use puck::SimPuck;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,7 +18,10 @@ use tokio::net::TcpListener;
 use tokio::sync::{watch, Notify};
 
 pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[derive(Clone)]
@@ -74,7 +77,11 @@ impl Sim {
     }
 
     fn publish(&self) {
-        let shown = if self.available() { self.puck.lock().unwrap().shown(now_ms()) } else { "bootloader".into() };
+        let shown = if self.available() {
+            self.puck.lock().unwrap().shown(now_ms())
+        } else {
+            "bootloader".into()
+        };
         self.shown_tx.send_if_modified(|cur| {
             if *cur != shown {
                 *cur = shown;
@@ -149,11 +156,16 @@ impl Sim {
 
     async fn fake_bootloader(&self, dir: PathBuf) {
         let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(dir.join("INFO_UF2.TXT"), "UF2 Bootloader v3.0\r\nModel: Raspberry Pi RP2\r\nBoard-ID: RPI-RP2\r\n");
+        let _ = std::fs::write(
+            dir.join("INFO_UF2.TXT"),
+            "UF2 Bootloader v3.0\r\nModel: Raspberry Pi RP2\r\nBoard-ID: RPI-RP2\r\n",
+        );
         // Wait (up to 2 min) for a .uf2, like the ROM bootloader.
         for _ in 0..1200 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for entry in rd.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("uf2") {
@@ -176,7 +188,9 @@ impl Sim {
         let me = self.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else { continue };
+                let Ok((stream, _)) = listener.accept().await else {
+                    continue;
+                };
                 let _ = stream.set_nodelay(true);
                 if !me.available() {
                     drop(stream); // "no such device" while in the bootloader
@@ -207,7 +221,8 @@ impl Sim {
 fn version_from_name(path: &std::path::Path) -> Option<String> {
     let stem = path.file_stem()?.to_str()?;
     let v = stem.rsplit('-').next()?;
-    (v.split('.').count() == 3 && v.split('.').all(|p| p.parse::<u32>().is_ok())).then(|| v.to_string())
+    (v.split('.').count() == 3 && v.split('.').all(|p| p.parse::<u32>().is_ok()))
+        .then(|| v.to_string())
 }
 
 #[cfg(test)]
@@ -216,7 +231,10 @@ mod tests {
 
     #[test]
     fn version_names() {
-        assert_eq!(version_from_name(std::path::Path::new("humanneeded-hn-v2-2.0.1.uf2")).as_deref(), Some("2.0.1"));
+        assert_eq!(
+            version_from_name(std::path::Path::new("humanneeded-hn-v2-2.0.1.uf2")).as_deref(),
+            Some("2.0.1")
+        );
         assert_eq!(version_from_name(std::path::Path::new("x.uf2")), None);
     }
 
@@ -230,9 +248,15 @@ mod tests {
         w.write_all(b"SNAP 30 0000000a:needs\n").await.unwrap();
         assert_eq!(lines.next_line().await.unwrap().unwrap(), "OK");
         let mut rx = sim.subscribe();
-        tokio::time::timeout(Duration::from_secs(2), rx.wait_for(|s| s == "needs")).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), rx.wait_for(|s| s == "needs"))
+            .await
+            .unwrap()
+            .unwrap();
         drop(w);
         drop(lines);
-        tokio::time::timeout(Duration::from_secs(2), rx.wait_for(|s| s == "idle")).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), rx.wait_for(|s| s == "idle"))
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

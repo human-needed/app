@@ -1,7 +1,12 @@
 //! "2.0.0", "v0.2.0-test.4" -> [2,0,0]. Pre-release suffixes are ignored.
 
 pub fn parse(v: &str) -> [u32; 3] {
-    let core = v.trim().trim_start_matches('v').split(['-', '+']).next().unwrap_or("");
+    let core = v
+        .trim()
+        .trim_start_matches('v')
+        .split(['-', '+'])
+        .next()
+        .unwrap_or("");
     let mut out = [0u32; 3];
     for (i, part) in core.split('.').take(3).enumerate() {
         out[i] = part.parse().unwrap_or(0);

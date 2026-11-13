@@ -23,7 +23,9 @@ fn default_endpoint() -> PathBuf {
 
 #[cfg(target_os = "macos")]
 fn default_endpoint() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/tmp".into());
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/tmp".into());
     home.join("Library/Application Support/HumanNeeded/hn.sock")
 }
 
@@ -37,7 +39,9 @@ fn default_endpoint() -> PathBuf {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn unsafe_uid() -> String {
-    std::env::var("UID").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "user".into())
+    std::env::var("UID")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "user".into())
 }
 
 #[cfg(windows)]

@@ -43,7 +43,12 @@ async fn rig_with(name: &str, latest: Option<String>, drive: Option<PathBuf>) ->
     })
     .await
     .unwrap();
-    let rig = Rig { sim, engine, ipc, claude };
+    let rig = Rig {
+        sim,
+        engine,
+        ipc,
+        claude,
+    };
     rig.wait_puck().await;
     rig
 }
@@ -63,7 +68,14 @@ impl Rig {
     fn hook(&self, state: &str, session: &str) -> (std::process::Output, Duration) {
         let start = Instant::now();
         let mut child = Command::new(HN)
-            .args(["event", "--agent", "claude", "--state", state, "--stdin-json"])
+            .args([
+                "event",
+                "--agent",
+                "claude",
+                "--state",
+                state,
+                "--stdin-json",
+            ])
             .env("HN_IPC", &self.ipc)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -72,20 +84,34 @@ impl Rig {
             .unwrap();
         use std::io::Write;
         let json = format!(r#"{{"session_id":"{session}","hook_event_name":"x"}}"#);
-        child.stdin.take().unwrap().write_all(json.as_bytes()).unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(json.as_bytes())
+            .unwrap();
         let out = child.wait_with_output().unwrap();
         (out, start.elapsed())
     }
 
     fn hn(&self, args: &[&str]) -> serde_json::Value {
-        let out = Command::new(HN).args(args).env("HN_IPC", &self.ipc).output().unwrap();
-        serde_json::from_slice(&out.stdout).unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stdout)))
+        let out = Command::new(HN)
+            .args(args)
+            .env("HN_IPC", &self.ipc)
+            .output()
+            .unwrap();
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stdout)))
     }
 
     async fn expect_shown(&self, want: &str, within: Duration) {
         let mut rx = self.sim.subscribe();
         let r = tokio::time::timeout(within, rx.wait_for(|s| s == want)).await;
-        assert!(r.is_ok(), "expected puck to show {want}, it shows {}", self.sim.shown());
+        assert!(
+            r.is_ok(),
+            "expected puck to show {want}, it shows {}",
+            self.sim.shown()
+        );
     }
 
     fn claude_file(&self, session: &str, status: &str) {
@@ -102,16 +128,31 @@ impl Rig {
 fn hn_is_silent_and_fast_without_the_app() {
     let start = Instant::now();
     let out = Command::new(HN)
-        .args(["event", "--agent", "claude", "--state", "working", "--stdin-json"])
+        .args([
+            "event",
+            "--agent",
+            "claude",
+            "--state",
+            "working",
+            "--stdin-json",
+        ])
         .env("HN_IPC", endpoint("absent"))
         .stdin(Stdio::null())
         .output()
         .unwrap();
     assert!(out.status.success());
     assert!(out.stdout.is_empty() && out.stderr.is_empty());
-    assert!(start.elapsed() < Duration::from_secs(1), "{:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        start.elapsed()
+    );
     // Garbage args: still exit 0, silent.
-    let out = Command::new(HN).args(["event", "--agent", "BAD"]).env("HN_IPC", endpoint("absent")).output().unwrap();
+    let out = Command::new(HN)
+        .args(["event", "--agent", "BAD"])
+        .env("HN_IPC", endpoint("absent"))
+        .output()
+        .unwrap();
     assert!(out.status.success() && out.stdout.is_empty());
 }
 
@@ -127,7 +168,14 @@ async fn working_needs_done_flash() {
 
     r.hook("needs", "s2");
     r.expect_shown("needs", Duration::from_secs(2)).await;
-    assert!(r.sim.puck.lock().unwrap().sounds.iter().any(|s| s.starts_with("needs")));
+    assert!(r
+        .sim
+        .puck
+        .lock()
+        .unwrap()
+        .sounds
+        .iter()
+        .any(|s| s.starts_with("needs")));
 
     r.hook("end", "s2");
     r.expect_shown("working", Duration::from_secs(2)).await;
@@ -136,7 +184,10 @@ async fn working_needs_done_flash() {
     r.expect_shown("done", Duration::from_secs(2)).await;
     // done.duration is 5 s in the simulator's defaults; then nothing is active.
     r.expect_shown("idle", Duration::from_secs(7)).await;
-    assert!(r.engine.status().await["snapshot"].as_array().unwrap().is_empty());
+    assert!(r.engine.status().await["snapshot"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -162,7 +213,12 @@ async fn claude_quit_clears_within_10s() {
     r.hook("needs", "q1");
     r.expect_shown("needs", Duration::from_secs(2)).await;
     tokio::time::sleep(Duration::from_secs(3)).await; // bind to the file
-    std::fs::remove_file(r.claude.path().join(format!("sessions/{}.json", std::process::id()))).unwrap();
+    std::fs::remove_file(
+        r.claude
+            .path()
+            .join(format!("sessions/{}.json", std::process::id())),
+    )
+    .unwrap();
     r.expect_shown("idle", Duration::from_secs(10)).await;
 }
 
@@ -170,13 +226,17 @@ async fn claude_quit_clears_within_10s() {
 async fn out_of_order_events_are_ignored() {
     let r = rig("order").await;
     let send = |state: &str, ts: u64| {
-        let line = format!(r#"{{"v":1,"agent":"codex","session":"o","state":"{state}","ts":{ts}}}"#);
+        let line =
+            format!(r#"{{"v":1,"agent":"codex","session":"o","state":"{state}","ts":{ts}}}"#);
         send_raw(&r.ipc, &line);
     };
     send("done", 2000);
     send("working", 1000); // late
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(r.engine.status().await["snapshot"].as_array().unwrap().is_empty());
+    assert!(r.engine.status().await["snapshot"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -197,7 +257,11 @@ async fn hn_commands() {
     let st = tokio::task::spawn_blocking({
         let ipc = r.ipc.clone();
         move || {
-            let out = Command::new(HN).arg("status").env("HN_IPC", &ipc).output().unwrap();
+            let out = Command::new(HN)
+                .arg("status")
+                .env("HN_IPC", &ipc)
+                .output()
+                .unwrap();
             serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
         }
     })
@@ -208,9 +272,19 @@ async fn hn_commands() {
     assert_eq!(st["sessions"][0]["session"], "x1");
 
     let ipc = r.ipc.clone();
-    let rr = Rig { sim: r.sim.clone(), engine: r.engine.clone(), ipc, claude: tempfile::tempdir().unwrap() };
+    let rr = Rig {
+        sim: r.sim.clone(),
+        engine: r.engine.clone(),
+        ipc,
+        claude: tempfile::tempdir().unwrap(),
+    };
     let (mute, set, bad, test) = tokio::task::spawn_blocking(move || {
-        (rr.hn(&["mute", "5"]), rr.hn(&["set", "needs.color", "#112233"]), rr.hn(&["set", "nope", "1"]), rr.hn(&["test", "needs"]))
+        (
+            rr.hn(&["mute", "5"]),
+            rr.hn(&["set", "needs.color", "#112233"]),
+            rr.hn(&["set", "nope", "1"]),
+            rr.hn(&["test", "needs"]),
+        )
     })
     .await
     .unwrap();
@@ -218,7 +292,10 @@ async fn hn_commands() {
     assert_eq!(set["ok"], true);
     assert_eq!(bad["ok"], false);
     assert_eq!(test["ok"], true);
-    assert_eq!(r.sim.puck.lock().unwrap().settings["needs.color"], "#112233");
+    assert_eq!(
+        r.sim.puck.lock().unwrap().settings["needs.color"],
+        "#112233"
+    );
     r.expect_shown("test:needs", Duration::from_secs(2)).await;
 }
 
@@ -244,9 +321,20 @@ async fn firmware_update_via_bootsel() {
     uf2.resize(1024, 7);
     let file = dir.path().join("humanneeded-hn-v2-2.0.1.uf2");
     std::fs::write(&file, &uf2).unwrap();
-    let sha: String = Sha256::digest(&uf2).iter().map(|b| format!("{b:02x}")).collect();
+    let sha: String = Sha256::digest(&uf2)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let latest = dir.path().join("latest.json");
-    let url = |p: &Path| format!("file:///{}", p.display().to_string().replace('\\', "/").trim_start_matches('/'));
+    let url = |p: &Path| {
+        format!(
+            "file:///{}",
+            p.display()
+                .to_string()
+                .replace('\\', "/")
+                .trim_start_matches('/')
+        )
+    };
     std::fs::write(
         &latest,
         format!(
@@ -260,7 +348,11 @@ async fn firmware_update_via_bootsel() {
     assert!(avail.newer);
     r.hook("working", "f1");
     r.expect_shown("working", Duration::from_secs(2)).await;
-    let v = r.engine.update_firmware(|s| eprintln!("update: {s}")).await.unwrap();
+    let v = r
+        .engine
+        .update_firmware(|s| eprintln!("update: {s}"))
+        .await
+        .unwrap();
     assert_eq!(v, "2.0.1");
     assert_eq!(r.sim.fw(), "2.0.1");
     // State comes back after the update.
@@ -276,8 +368,23 @@ async fn firmware_without_sha_is_refused() {
     uf2.resize(1024, 7);
     let file = dir.path().join("a-2.0.1.uf2");
     std::fs::write(&file, &uf2).unwrap();
-    let p = |p: &Path| format!("file:///{}", p.display().to_string().replace('\\', "/").trim_start_matches('/'));
-    std::fs::write(&latest, format!(r#"{{"hn-v2":{{"version":"2.0.1","file":"a-2.0.1.uf2","url":"{}"}}}}"#, p(&file))).unwrap();
+    let p = |p: &Path| {
+        format!(
+            "file:///{}",
+            p.display()
+                .to_string()
+                .replace('\\', "/")
+                .trim_start_matches('/')
+        )
+    };
+    std::fs::write(
+        &latest,
+        format!(
+            r#"{{"hn-v2":{{"version":"2.0.1","file":"a-2.0.1.uf2","url":"{}"}}}}"#,
+            p(&file)
+        ),
+    )
+    .unwrap();
     let r = rig_with("fwsha", Some(p(&latest)), None).await;
     let err = r.engine.update_firmware(|_| {}).await.unwrap_err();
     assert!(err.contains("SHA-256"), "{err}");

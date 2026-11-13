@@ -175,15 +175,21 @@ impl Table {
 
     /// The snapshot for the puck: needs before working, most recent first, ≤ 32, then by id.
     pub fn snapshot(&self) -> Vec<(String, SnapState)> {
-        let mut active: Vec<&Session> = self.sessions.values().filter(|s| s.state.snap().is_some()).collect();
+        let mut active: Vec<&Session> = self
+            .sessions
+            .values()
+            .filter(|s| s.state.snap().is_some())
+            .collect();
         active.sort_by(|a, b| {
             (b.state == State::Needs)
                 .cmp(&(a.state == State::Needs))
                 .then(b.last_seen.cmp(&a.last_seen))
         });
         active.truncate(MAX_ENTRIES);
-        let mut out: Vec<(String, SnapState)> =
-            active.into_iter().map(|s| (s.id.clone(), s.state.snap().unwrap())).collect();
+        let mut out: Vec<(String, SnapState)> = active
+            .into_iter()
+            .map(|s| (s.id.clone(), s.state.snap().unwrap()))
+            .collect();
         out.sort();
         out.dedup_by(|a, b| a.0 == b.0);
         out
@@ -191,7 +197,7 @@ impl Table {
 
     pub fn list(&self) -> Vec<Session> {
         let mut v: Vec<Session> = self.sessions.values().cloned().collect();
-        v.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        v.sort_by_key(|s| std::cmp::Reverse(s.last_seen));
         v
     }
 }
@@ -243,10 +249,23 @@ mod tests {
     use super::*;
 
     fn ev(agent: &str, session: &str, state: AgentState, ts: u64) -> Event {
-        Event { v: 1, agent: agent.into(), session: session.into(), state, ts, ttl: None }
+        Event {
+            v: 1,
+            agent: agent.into(),
+            session: session.into(),
+            state,
+            ts,
+            ttl: None,
+        }
     }
 
-    fn claude_file(session: &str, pid: u32, status: ClaudeStatus, updated: u64, alive: bool) -> Observations {
+    fn claude_file(
+        session: &str,
+        pid: u32,
+        status: ClaudeStatus,
+        updated: u64,
+        alive: bool,
+    ) -> Observations {
         Observations {
             claude: Some(vec![ClaudeObservation {
                 file: ClaudeSessionFile {
@@ -389,7 +408,12 @@ mod tests {
         t.apply(&ev("claude", "b", AgentState::Working, 1), 1);
         assert!(!t.check(&claude_file("b", 8, ClaudeStatus::Busy, 0, true), 2));
         // App quit: file removed.
-        assert!(t.check(&Observations { claude: Some(vec![]) }, 3));
+        assert!(t.check(
+            &Observations {
+                claude: Some(vec![])
+            },
+            3
+        ));
         assert!(t.snapshot().is_empty());
     }
 
@@ -397,15 +421,28 @@ mod tests {
     fn claude_without_file_uses_fallback() {
         let mut t = Table::new();
         t.apply(&ev("claude", "cloud1", AgentState::Working, 1), 0);
-        assert!(!t.check(&Observations { claude: Some(vec![]) }, 1000));
-        assert!(t.check(&Observations { claude: Some(vec![]) }, FALLBACK_IDLE_MS + 1));
+        assert!(!t.check(
+            &Observations {
+                claude: Some(vec![])
+            },
+            1000
+        ));
+        assert!(t.check(
+            &Observations {
+                claude: Some(vec![])
+            },
+            FALLBACK_IDLE_MS + 1
+        ));
     }
 
     #[test]
     fn snapshot_caps_at_32_keeping_needs() {
         let mut t = Table::new();
         for i in 0..40u64 {
-            t.apply(&ev("codex", &format!("w{i}"), AgentState::Working, i), 100 + i);
+            t.apply(
+                &ev("codex", &format!("w{i}"), AgentState::Working, i),
+                100 + i,
+            );
         }
         t.apply(&ev("codex", "n", AgentState::Needs, 1), 1);
         let snap = t.snapshot();

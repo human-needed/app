@@ -54,7 +54,10 @@ impl PuckTarget {
 
 #[derive(Debug, Clone)]
 pub enum LinkEvent {
-    Connected { hello: Hello, port: String },
+    Connected {
+        hello: Hello,
+        port: String,
+    },
     Disconnected,
     /// The puck said `!HELLO` (it reset or re-enumerated): re-send state.
     Rehello,
@@ -80,7 +83,10 @@ impl Link {
     /// Sends a command and waits for its reply line (`OK`, JSON, …). `ERR x` → `Err(x)`.
     pub async fn request(&self, line: impl Into<String>) -> Result<String, String> {
         let (rtx, rrx) = oneshot::channel();
-        self.tx.send((line.into(), Some(rtx))).await.map_err(|_| "link stopped".to_string())?;
+        self.tx
+            .send((line.into(), Some(rtx)))
+            .await
+            .map_err(|_| "link stopped".to_string())?;
         rrx.await.map_err(|_| "link stopped".to_string())?
     }
 
@@ -90,7 +96,11 @@ impl Link {
     }
 }
 
-async fn run(target: PuckTarget, mut rx: mpsc::Receiver<(String, Option<Reply>)>, events: mpsc::Sender<LinkEvent>) {
+async fn run(
+    target: PuckTarget,
+    mut rx: mpsc::Receiver<(String, Option<Reply>)>,
+    events: mpsc::Sender<LinkEvent>,
+) {
     if matches!(target, PuckTarget::None) {
         while let Some((_, reply)) = rx.recv().await {
             if let Some(r) = reply {
@@ -104,8 +114,18 @@ async fn run(target: PuckTarget, mut rx: mpsc::Receiver<(String, Option<Reply>)>
         match open(&target).await {
             Ok((stream, port, hello)) => {
                 last_error.clear();
-                log!("puck: connected on {port}: fw {} board {} proto {}", hello.fw, hello.board, hello.proto);
-                let _ = events.send(LinkEvent::Connected { hello, port: port.clone() }).await;
+                log!(
+                    "puck: connected on {port}: fw {} board {} proto {}",
+                    hello.fw,
+                    hello.board,
+                    hello.proto
+                );
+                let _ = events
+                    .send(LinkEvent::Connected {
+                        hello,
+                        port: port.clone(),
+                    })
+                    .await;
                 session(stream, &mut rx, &events).await;
                 log!("puck: disconnected from {port}");
                 let _ = events.send(LinkEvent::Disconnected).await;
@@ -136,7 +156,9 @@ async fn run(target: PuckTarget, mut rx: mpsc::Receiver<(String, Option<Reply>)>
 async fn open(target: &PuckTarget) -> Result<(Box<dyn Stream>, String, Hello), String> {
     match target {
         PuckTarget::Tcp(addr) => {
-            let s = tokio::net::TcpStream::connect(addr).await.map_err(|e| format!("tcp {addr}: {e}"))?;
+            let s = tokio::net::TcpStream::connect(addr)
+                .await
+                .map_err(|e| format!("tcp {addr}: {e}"))?;
             let _ = s.set_nodelay(true);
             handshake(Box::new(s), format!("tcp:{addr}")).await
         }
@@ -168,7 +190,9 @@ async fn open(target: &PuckTarget) -> Result<(Box<dyn Stream>, String, Hello), S
 
 /// Serial ports that may be a puck: Raspberry Pi VID, "HumanNeeded" product first.
 pub fn find_pucks() -> Vec<String> {
-    let Ok(ports) = tokio_serial::available_ports() else { return vec![] };
+    let Ok(ports) = tokio_serial::available_ports() else {
+        return vec![];
+    };
     let mut named = Vec::new();
     let mut other = Vec::new();
     for p in ports {
@@ -176,7 +200,11 @@ pub fn find_pucks() -> Vec<String> {
             if usb.vid != proto::VID {
                 continue;
             }
-            if usb.product.as_deref().is_some_and(|n| n.contains(proto::PRODUCT)) {
+            if usb
+                .product
+                .as_deref()
+                .is_some_and(|n| n.contains(proto::PRODUCT))
+            {
                 named.push(p.port_name.clone());
             } else {
                 other.push(p.port_name.clone());
@@ -189,15 +217,20 @@ pub fn find_pucks() -> Vec<String> {
 
 fn open_serial(port: &str) -> Result<Box<dyn Stream>, String> {
     use tokio_serial::SerialPort;
-    let mut s = tokio_serial::SerialStream::open(&tokio_serial::new(port, 115_200).timeout(Duration::from_millis(100)))
-        .map_err(|e| format!("can't open: {e} (in use by another program?)"))?;
+    let mut s = tokio_serial::SerialStream::open(
+        &tokio_serial::new(port, 115_200).timeout(Duration::from_millis(100)),
+    )
+    .map_err(|e| format!("can't open: {e} (in use by another program?)"))?;
     #[cfg(unix)]
     let _ = s.set_exclusive(true);
     let _ = s.write_data_terminal_ready(true);
     Ok(Box::new(s))
 }
 
-async fn handshake(mut s: Box<dyn Stream>, port: String) -> Result<(Box<dyn Stream>, String, Hello), String> {
+async fn handshake(
+    mut s: Box<dyn Stream>,
+    port: String,
+) -> Result<(Box<dyn Stream>, String, Hello), String> {
     let mut split = LineSplitter::default();
     let reply = exchange(&mut s, &mut split, "HELLO", &mut |_| {}).await?;
     let hello = Hello::parse(&reply)?;
@@ -211,7 +244,9 @@ async fn exchange(
     line: &str,
     on_bang: &mut (dyn FnMut(String) + Send),
 ) -> Result<String, String> {
-    s.write_all(format!("{line}\n").as_bytes()).await.map_err(|e| format!("write: {e}"))?;
+    s.write_all(format!("{line}\n").as_bytes())
+        .await
+        .map_err(|e| format!("write: {e}"))?;
     s.flush().await.map_err(|e| format!("write: {e}"))?;
     let deadline = tokio::time::Instant::now() + REPLY_TIMEOUT;
     let mut buf = [0u8; 512];

@@ -49,7 +49,8 @@ pub struct Hello {
 
 impl Hello {
     pub fn parse(line: &str) -> Result<Self, String> {
-        let h: Hello = serde_json::from_str(line).map_err(|_| format!("not a HELLO reply: {line}"))?;
+        let h: Hello =
+            serde_json::from_str(line).map_err(|_| format!("not a HELLO reply: {line}"))?;
         if h.name != PRODUCT {
             return Err(format!("not a HumanNeeded puck ({})", h.name));
         }
@@ -74,7 +75,10 @@ pub fn snap_line(lease_s: u32, entries: &[(String, SnapState)]) -> String {
 }
 
 pub fn valid_id(id: &str) -> bool {
-    id.len() == 8 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    id.len() == 8
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// A reply line from the puck, classified.
@@ -153,13 +157,18 @@ mod tests {
     #[test]
     fn snap() {
         assert_eq!(snap_line(30, &[]), "SNAP 30");
-        let e = vec![("0000abcd".to_string(), SnapState::Needs), ("12345678".to_string(), SnapState::Working)];
+        let e = vec![
+            ("0000abcd".to_string(), SnapState::Needs),
+            ("12345678".to_string(), SnapState::Working),
+        ];
         assert_eq!(snap_line(30, &e), "SNAP 30 0000abcd:needs 12345678:working");
     }
 
     #[test]
     fn snap_caps_entries_and_fits_a_line() {
-        let e: Vec<_> = (0..40).map(|i| (format!("{i:08x}"), SnapState::Working)).collect();
+        let e: Vec<_> = (0..40)
+            .map(|i| (format!("{i:08x}"), SnapState::Working))
+            .collect();
         let line = snap_line(600, &e);
         assert_eq!(line.split(' ').count(), 2 + MAX_ENTRIES);
         assert!(line.len() < MAX_LINE);
@@ -167,10 +176,15 @@ mod tests {
 
     #[test]
     fn hello() {
-        let h = Hello::parse(r#"{"name":"HumanNeeded","fw":"2.0.0","board":"hn-v2","serial":"HN0011","proto":2}"#).unwrap();
+        let h = Hello::parse(
+            r#"{"name":"HumanNeeded","fw":"2.0.0","board":"hn-v2","serial":"HN0011","proto":2}"#,
+        )
+        .unwrap();
         assert!(h.compatible());
         assert!(Hello::parse(r#"{"name":"Other","fw":"1"}"#).is_err());
-        assert!(!Hello::parse(r#"{"name":"HumanNeeded","fw":"0.3.0"}"#).unwrap().compatible());
+        assert!(!Hello::parse(r#"{"name":"HumanNeeded","fw":"0.3.0"}"#)
+            .unwrap()
+            .compatible());
     }
 
     #[test]

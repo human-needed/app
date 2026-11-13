@@ -5,8 +5,19 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 
 pub const STATES: [&str; 4] = ["needs", "done", "working", "idle"];
-const LIGHTS: [&str; 8] = ["off", "solid", "breathe", "pulse", "blink", "heartbeat", "flicker", "spin"];
-const SOUNDS: [&str; 8] = ["none", "ding", "chime", "rising", "arpeggio", "bell", "beeps", "bloop"];
+const LIGHTS: [&str; 8] = [
+    "off",
+    "solid",
+    "breathe",
+    "pulse",
+    "blink",
+    "heartbeat",
+    "flicker",
+    "spin",
+];
+const SOUNDS: [&str; 8] = [
+    "none", "ding", "chime", "rising", "arpeggio", "bell", "beeps", "bloop",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mute {
@@ -53,7 +64,10 @@ fn defaults() -> BTreeMap<String, String> {
     ] {
         m.insert(format!("{st}.color"), color.into());
         m.insert(format!("{st}.light"), light.into());
-        m.insert(format!("{st}.brightness"), if st == "idle" { "10" } else { "100" }.into());
+        m.insert(
+            format!("{st}.brightness"),
+            if st == "idle" { "10" } else { "100" }.into(),
+        );
         if st != "idle" {
             m.insert(format!("{st}.duration"), duration.into());
             m.insert(format!("{st}.sound"), sound.into());
@@ -141,21 +155,28 @@ impl SimPuck {
     }
 
     pub fn lease_left_s(&self, now: u64) -> u64 {
-        self.lease_until.map(|t| t.saturating_sub(now).div_ceil(1000)).unwrap_or(0)
+        self.lease_until
+            .map(|t| t.saturating_sub(now).div_ceil(1000))
+            .unwrap_or(0)
     }
 
     fn play(&mut self, state: &str) {
         if self.mute != Mute::Off {
             return;
         }
-        let sound = self.settings.get(&format!("{state}.sound")).cloned().unwrap_or_default();
+        let sound = self
+            .settings
+            .get(&format!("{state}.sound"))
+            .cloned()
+            .unwrap_or_default();
         if sound != "none" && !sound.is_empty() {
             self.sounds.push(format!("{state}:{sound}"));
         }
     }
 
     pub fn hello_json(&self) -> String {
-        json!({"name":"HumanNeeded","fw":self.fw,"board":self.board,"serial":self.serial,"proto":2}).to_string()
+        json!({"name":"HumanNeeded","fw":self.fw,"board":self.board,"serial":self.serial,"proto":2})
+            .to_string()
     }
 
     /// Handles one command line, returns exactly one reply line.
@@ -171,7 +192,12 @@ impl SimPuck {
             "HELLO" => self.hello_json(),
             "SNAP" => self.snap(&args, now),
             "FLASH" if args == ["done"] => {
-                let secs: u64 = self.settings.get("done.duration").and_then(|d| d.parse().ok()).unwrap_or(5).max(1);
+                let secs: u64 = self
+                    .settings
+                    .get("done.duration")
+                    .and_then(|d| d.parse().ok())
+                    .unwrap_or(5)
+                    .max(1);
                 self.flash_until = Some(now + secs * 1000);
                 self.test = None;
                 self.play("done");
@@ -213,7 +239,10 @@ impl SimPuck {
                     _ => "ERR bad minutes".into(),
                 },
             },
-            "TEST" if args.len() == 1 && ["needs", "done", "working", "idle", "hello"].contains(&args[0]) => {
+            "TEST"
+                if args.len() == 1
+                    && ["needs", "done", "working", "idle", "hello"].contains(&args[0]) =>
+            {
                 self.test = Some((args[0].into(), now + 10_000));
                 if args[0] == "needs" || args[0] == "done" {
                     self.play(args[0]);
@@ -227,8 +256,11 @@ impl SimPuck {
                     Mute::On => "on".to_string(),
                     Mute::Until(t) => t.saturating_sub(now).div_ceil(60_000).to_string(),
                 };
-                let entries: Vec<Value> =
-                    self.entries.iter().map(|(id, s)| json!({"id": id, "state": s.as_str()})).collect();
+                let entries: Vec<Value> = self
+                    .entries
+                    .iter()
+                    .map(|(id, s)| json!({"id": id, "state": s.as_str()}))
+                    .collect();
                 json!({"proto":2,"lease_left":self.lease_left_s(now),"shown":shown,"muted":muted,"entries":entries})
                     .to_string()
             }
@@ -240,7 +272,9 @@ impl SimPuck {
                 self.pending = Some(Pending::Bootsel);
                 "OK".into()
             }
-            "SELFTEST" => json!({"leds":"ok","speaker":"ok","serial":self.serial,"button":"up"}).to_string(),
+            "SELFTEST" => {
+                json!({"leds":"ok","speaker":"ok","serial":self.serial,"button":"up"}).to_string()
+            }
             "" => "ERR empty".into(),
             _ => "ERR unknown command".into(),
         }
@@ -258,16 +292,23 @@ impl SimPuck {
         }
         let mut entries = Vec::new();
         for a in &args[1..] {
-            let Some((id, st)) = a.split_once(':') else { return "ERR bad entry".into() };
-            let Some(st) = SnapState::parse(st) else { return "ERR bad state".into() };
+            let Some((id, st)) = a.split_once(':') else {
+                return "ERR bad entry".into();
+            };
+            let Some(st) = SnapState::parse(st) else {
+                return "ERR bad state".into();
+            };
             if !valid_id(id) {
                 return "ERR bad id".into();
             }
             entries.push((id.to_string(), st));
         }
         // Whole line validated: now apply.
-        let needs: HashSet<String> =
-            entries.iter().filter(|(_, s)| *s == SnapState::Needs).map(|(i, _)| i.clone()).collect();
+        let needs: HashSet<String> = entries
+            .iter()
+            .filter(|(_, s)| *s == SnapState::Needs)
+            .map(|(i, _)| i.clone())
+            .collect();
         let before = self.base_shown(now);
         if needs.iter().any(|id| !self.prev_needs.contains(id)) {
             self.play("needs");
@@ -297,7 +338,9 @@ fn validate(key: &str, value: &str) -> Result<String, &'static str> {
         "duration" if key == "done.duration" => num(1, 3600),
         "duration" => num(0, 3600),
         "color" => {
-            let ok = value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit());
+            let ok = value.len() == 7
+                && value.starts_with('#')
+                && value[1..].chars().all(|c| c.is_ascii_hexdigit());
             if ok {
                 Ok(value.to_ascii_lowercase())
             } else {
@@ -313,14 +356,51 @@ fn validate(key: &str, value: &str) -> Result<String, &'static str> {
 
 /// Same shape as firmware 0.3.0's SCHEMA (schema 1).
 pub fn schema() -> Value {
-    let opts = |v: &[&str], l: &[&str]| -> Value { v.iter().zip(l).map(|(a, b)| json!([a, b])).collect() };
-    let light = opts(&LIGHTS, &["Off", "Solid", "Breathe (slow)", "Pulse", "Blink", "Heartbeat", "Candle flicker", "Spin (LED ring)"]);
-    let sound = opts(&SOUNDS, &["No sound", "Ding", "Chime (falling)", "Rising", "Arpeggio", "Bell", "Beeps", "Bloop"]);
+    let opts =
+        |v: &[&str], l: &[&str]| -> Value { v.iter().zip(l).map(|(a, b)| json!([a, b])).collect() };
+    let light = opts(
+        &LIGHTS,
+        &[
+            "Off",
+            "Solid",
+            "Breathe (slow)",
+            "Pulse",
+            "Blink",
+            "Heartbeat",
+            "Candle flicker",
+            "Spin (LED ring)",
+        ],
+    );
+    let sound = opts(
+        &SOUNDS,
+        &[
+            "No sound",
+            "Ding",
+            "Chime (falling)",
+            "Rising",
+            "Arpeggio",
+            "Bell",
+            "Beeps",
+            "Bloop",
+        ],
+    );
     let duration = opts(
         &["0", "3", "5", "10", "30", "60", "300", "600"],
-        &["As long as the state lasts", "3 seconds", "5 seconds", "10 seconds", "30 seconds", "1 minute", "5 minutes", "10 minutes"],
+        &[
+            "As long as the state lasts",
+            "3 seconds",
+            "5 seconds",
+            "10 seconds",
+            "30 seconds",
+            "1 minute",
+            "5 minutes",
+            "10 minutes",
+        ],
     );
-    let repeat = opts(&["1", "2", "3", "4", "5"], &["Once", "2 times", "3 times", "4 times", "5 times"]);
+    let repeat = opts(
+        &["1", "2", "3", "4", "5"],
+        &["Once", "2 times", "3 times", "4 times", "5 times"],
+    );
     let state = |id: &str, title: &str, desc: &str| -> Value {
         let mut fields = vec![
             json!({"key":format!("{id}.color"),"label":"Colour","type":"color"}),
@@ -383,7 +463,9 @@ mod tests {
     fn snap_validation_is_all_or_nothing() {
         let mut p = SimPuck::new("2.0.0");
         p.handle("SNAP 30 0000000a:working", 0);
-        assert!(p.handle("SNAP 30 0000000b:needs ZZ:working", 1).starts_with("ERR"));
+        assert!(p
+            .handle("SNAP 30 0000000b:needs ZZ:working", 1)
+            .starts_with("ERR"));
         assert_eq!(p.shown(1), "working");
         assert!(p.handle("SNAP 4", 1).starts_with("ERR"));
         assert!(p.handle("SNAP 601", 1).starts_with("ERR"));

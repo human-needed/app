@@ -19,14 +19,27 @@ pub fn path() -> Option<PathBuf> {
 pub fn write(msg: &str) {
     let ms = hn_sim::now_ms();
     let s = (ms / 1000) % 86_400;
-    let line = format!("{:02}:{:02}:{:02}.{:03}Z {msg}\n", s / 3600, (s / 60) % 60, s % 60, ms % 1000);
+    let line = format!(
+        "{:02}:{:02}:{:02}.{:03}Z {msg}\n",
+        s / 3600,
+        (s / 60) % 60,
+        s % 60,
+        ms % 1000
+    );
     eprint!("{line}");
     let guard = FILE.lock().unwrap();
     let Some(path) = guard.as_ref() else { return };
-    if std::fs::metadata(path).map(|m| m.len() > MAX).unwrap_or(false) {
+    if std::fs::metadata(path)
+        .map(|m| m.len() > MAX)
+        .unwrap_or(false)
+    {
         let _ = std::fs::rename(path, path.with_extension("log.1"));
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }

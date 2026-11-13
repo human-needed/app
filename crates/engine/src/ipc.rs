@@ -36,7 +36,14 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: S, tx: mpsc::Sender<I
         }
         Message::Request(_) => {
             let (rtx, rrx) = oneshot::channel();
-            if tx.send(Incoming { msg, reply: Some(rtx) }).await.is_err() {
+            if tx
+                .send(Incoming {
+                    msg,
+                    reply: Some(rtx),
+                })
+                .await
+                .is_err()
+            {
                 return;
             }
             if let Ok(Ok(answer)) = tokio::time::timeout(Duration::from_secs(6), rrx).await {
@@ -52,7 +59,10 @@ async fn handle<S: AsyncRead + AsyncWrite + Unpin>(stream: S, tx: mpsc::Sender<I
 pub fn serve(endpoint: PathBuf, tx: mpsc::Sender<Incoming>) -> std::io::Result<()> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = endpoint.to_string_lossy().into_owned();
-    let first = ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&name)?;
+    let first = ServerOptions::new()
+        .first_pipe_instance(true)
+        .reject_remote_clients(true)
+        .create(&name)?;
     tokio::spawn(async move {
         let mut server = first;
         loop {
@@ -60,7 +70,10 @@ pub fn serve(endpoint: PathBuf, tx: mpsc::Sender<Incoming>) -> std::io::Result<(
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             let next = loop {
-                match ServerOptions::new().reject_remote_clients(true).create(&name) {
+                match ServerOptions::new()
+                    .reject_remote_clients(true)
+                    .create(&name)
+                {
                     Ok(s) => break s,
                     Err(e) => {
                         log!("ipc: can't create pipe instance: {e}");
@@ -83,7 +96,10 @@ pub fn serve(endpoint: PathBuf, tx: mpsc::Sender<Incoming>) -> std::io::Result<(
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     }
     if std::os::unix::net::UnixStream::connect(&endpoint).is_ok() {
-        return Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, "app already running"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            "app already running",
+        ));
     }
     let _ = std::fs::remove_file(&endpoint);
     let listener = tokio::net::UnixListener::bind(&endpoint)?;

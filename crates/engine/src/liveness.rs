@@ -14,8 +14,12 @@ pub fn observe(claude_dir: Option<&Path>) -> Observations {
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Some(file) = parse_session_file(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Some(file) = parse_session_file(&text) else {
+                continue;
+            };
             let alive = process_alive(file.pid, file.proc_start.as_deref());
             out.push(ClaudeObservation { file, alive });
         }
@@ -39,7 +43,10 @@ pub fn process_alive(pid: u32, proc_start: Option<&str>) -> bool {
         }
         let mut code = 0u32;
         let running = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE as u32;
-        let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
         let (mut c, mut e, mut k, mut u) = (zero, zero, zero, zero);
         let times = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0;
         CloseHandle(h);

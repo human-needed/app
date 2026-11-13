@@ -59,7 +59,9 @@ pub enum Message {
 }
 
 pub fn valid_agent(a: &str) -> bool {
-    (1..=32).contains(&a.len()) && a.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    (1..=32).contains(&a.len())
+        && a.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 pub fn valid_session(s: &str) -> bool {
@@ -71,7 +73,8 @@ pub fn parse_line(line: &str) -> Result<Message, String> {
     if line.len() > MAX_LINE {
         return Err("line too long".into());
     }
-    let value: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("bad json: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("bad json: {e}"))?;
     if value.get("v").and_then(|v| v.as_u64()) != Some(1) {
         return Err("unsupported v".into());
     }
@@ -113,7 +116,8 @@ mod tests {
 
     #[test]
     fn parses_event() {
-        let m = parse_line(r#"{"v":1,"agent":"claude","session":"abc","state":"needs","ts":5}"#).unwrap();
+        let m = parse_line(r#"{"v":1,"agent":"claude","session":"abc","state":"needs","ts":5}"#)
+            .unwrap();
         match m {
             Message::Event(e) => {
                 assert_eq!(e.state, AgentState::Needs);
@@ -125,11 +129,22 @@ mod tests {
 
     #[test]
     fn rejects_bad_fields() {
-        assert!(parse_line(r#"{"v":2,"agent":"claude","session":"a","state":"needs","ts":5}"#).is_err());
-        assert!(parse_line(r#"{"v":1,"agent":"Claude","session":"a","state":"needs","ts":5}"#).is_err());
-        assert!(parse_line(r#"{"v":1,"agent":"claude","session":"","state":"needs","ts":5}"#).is_err());
-        assert!(parse_line(r#"{"v":1,"agent":"claude","session":"a","state":"busy","ts":5}"#).is_err());
-        assert!(parse_line(r#"{"v":1,"agent":"claude","session":"a","state":"needs","ts":5,"ttl":0}"#).is_err());
+        assert!(
+            parse_line(r#"{"v":2,"agent":"claude","session":"a","state":"needs","ts":5}"#).is_err()
+        );
+        assert!(
+            parse_line(r#"{"v":1,"agent":"Claude","session":"a","state":"needs","ts":5}"#).is_err()
+        );
+        assert!(
+            parse_line(r#"{"v":1,"agent":"claude","session":"","state":"needs","ts":5}"#).is_err()
+        );
+        assert!(
+            parse_line(r#"{"v":1,"agent":"claude","session":"a","state":"busy","ts":5}"#).is_err()
+        );
+        assert!(parse_line(
+            r#"{"v":1,"agent":"claude","session":"a","state":"needs","ts":5,"ttl":0}"#
+        )
+        .is_err());
         let long = "x".repeat(129);
         let line = format!(r#"{{"v":1,"agent":"a","session":"{long}","state":"needs","ts":5}}"#);
         assert!(parse_line(&line).is_err());
@@ -139,20 +154,40 @@ mod tests {
     #[test]
     fn parses_request() {
         let m = parse_line(r#"{"v":1,"cmd":"mute","args":["10"]}"#).unwrap();
-        assert_eq!(m, Message::Request(Request { v: 1, cmd: "mute".into(), args: vec!["10".into()] }));
+        assert_eq!(
+            m,
+            Message::Request(Request {
+                v: 1,
+                cmd: "mute".into(),
+                args: vec!["10".into()]
+            })
+        );
     }
 
     #[test]
     fn hook_json_session() {
-        assert_eq!(session_from_hook_json(br#"{"session_id":"s1","x":1}"#).as_deref(), Some("s1"));
-        assert_eq!(session_from_hook_json(br#"{"conversation_id":"c1"}"#).as_deref(), Some("c1"));
+        assert_eq!(
+            session_from_hook_json(br#"{"session_id":"s1","x":1}"#).as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            session_from_hook_json(br#"{"conversation_id":"c1"}"#).as_deref(),
+            Some("c1")
+        );
         assert_eq!(session_from_hook_json(b"{}"), None);
         assert_eq!(session_from_hook_json(b"garbage"), None);
     }
 
     #[test]
     fn roundtrip() {
-        let e = Event { v: 1, agent: "codex".into(), session: "s".into(), state: AgentState::Done, ts: 9, ttl: Some(30) };
+        let e = Event {
+            v: 1,
+            agent: "codex".into(),
+            session: "s".into(),
+            state: AgentState::Done,
+            ts: 9,
+            ttl: Some(30),
+        };
         let line = serde_json::to_string(&e).unwrap();
         assert_eq!(parse_line(&line).unwrap(), Message::Event(e));
     }
