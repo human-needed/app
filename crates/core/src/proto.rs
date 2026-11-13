@@ -7,6 +7,8 @@ pub const VID: u16 = 0x2E8A;
 pub const PRODUCT: &str = "HumanNeeded";
 pub const MAX_LINE: usize = 1024;
 pub const MAX_ENTRIES: usize = 32;
+/// Replies (e.g. SCHEMA) may be longer than a command line; anything beyond this is junk.
+pub const MAX_REPLY: usize = 64 * 1024;
 /// Lease the app sends with every snapshot (§3).
 pub const LEASE_S: u32 = 30;
 /// The app re-sends the snapshot at least this often (§3).
@@ -132,7 +134,7 @@ impl LineSplitter {
                 }
                 b'\r' => {}
                 _ => {
-                    if self.buf.len() >= MAX_LINE * 4 {
+                    if self.buf.len() >= MAX_REPLY {
                         self.overflow = true;
                         self.buf.clear();
                     }
@@ -201,7 +203,7 @@ mod tests {
         let mut s = LineSplitter::default();
         assert_eq!(s.push(b"OK\r\n!HEL"), vec!["OK"]);
         assert_eq!(s.push(b"LO\n"), vec!["!HELLO"]);
-        let big = vec![b'x'; MAX_LINE * 5];
+        let big = vec![b'x'; MAX_REPLY + 1];
         assert!(s.push(&big).is_empty());
         assert!(s.push(b"\n").is_empty());
         assert_eq!(s.push(b"OK\n"), vec!["OK"]);

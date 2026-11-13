@@ -144,7 +144,12 @@ impl Table {
 
     /// Runs the liveness rules. Returns true if any session changed state.
     pub fn check(&mut self, obs: &Observations, now: u64) -> bool {
-        let mut changed = false;
+        !self.check_changes(obs, now).is_empty()
+    }
+
+    /// Like [`Table::check`], returning the sessions that changed (for the log).
+    pub fn check_changes(&mut self, obs: &Observations, now: u64) -> Vec<Session> {
+        let mut changed = Vec::new();
         for s in self.sessions.values_mut() {
             if !matches!(s.state, State::Working | State::Needs) {
                 continue;
@@ -152,7 +157,7 @@ impl Table {
             if let Some(reason) = drop_reason(s, obs, now) {
                 s.state = State::Idle;
                 s.reason = reason;
-                changed = true;
+                changed.push(s.clone());
             }
         }
         self.sessions.retain(|_, s| match s.state {

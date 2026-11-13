@@ -301,7 +301,8 @@ async fn session(
                     if reply.is_none() { log!("puck: {line:?} failed: {e}"); }
                 }
                 if let Some(r) = reply { let _ = r.send(mapped); }
-                if fatal || timeouts >= 3 { return; }
+                // A late reply would be taken as the answer to the next command: start over clean.
+                if fatal || timeouts >= 1 { return; }
             }
             n = s.read(&mut buf) => {
                 let n = match n { Ok(0) | Err(_) => return, Ok(n) => n };

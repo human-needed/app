@@ -131,8 +131,11 @@ impl Engine {
                     if ticks.is_multiple_of(2) {
                         let dir = self.config.claude_dir.clone();
                         let obs = tokio::task::spawn_blocking(move || liveness::observe(dir.as_deref())).await.unwrap_or_default();
-                        let changed = self.shared.lock().unwrap().table.check(&obs, now_ms());
-                        if changed { self.changed(); }
+                        let changed = self.shared.lock().unwrap().table.check_changes(&obs, now_ms());
+                        for c in &changed {
+                            log!("liveness {} {} -> idle ({})", c.agent, c.session, c.reason);
+                        }
+                        if !changed.is_empty() { self.changed(); }
                     }
                     self.send_snapshot(false);
                 }
