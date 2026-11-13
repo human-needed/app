@@ -1,30 +1,51 @@
-//! Integration manifests (app-events §6, D-037): per agent app, how to detect it, whether the
-//! HumanNeeded integration is installed, how to install/remove it, and manual instructions.
-//! v1 installs Claude Code only; Codex and Cursor are detected and shown as "coming".
+//! Integration detect / install / remove (app-events §6, §6b, D-037, D-045), driven by WS-PLUG's
+//! manifest (`hn-integrations/0`), vendored in `integrations/` and embedded at build time.
+//!
+//! Supported manifest operations:
+//! - detect `any`: `{dir, os?}`, `{command}`
+//! - installed: `{json, pointer, equals}`, `{hooks_json, marker}`
+//! - install: `{preferred: {run}, fallback: {json_merge, set}}`, `{hooks_json_merge, from, format, after?}`
+//! - remove: `{run, fallback: {json_merge, delete}}`, `{hooks_json_remove, marker}`
+//!
+//! File edits keep every entry that is not ours (ours = a hook command starting with the marker)
+//! and are written atomically, with a one-time `.hn-backup` copy of the original.
 
 use serde::Serialize;
+use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub const CLAUDE_MARKETPLACE: &str = "human-needed/plugins";
-pub const CLAUDE_PLUGIN: &str = "humanneeded@humanneeded";
+const MANIFEST: &str = include_str!("../integrations/manifest.json");
+const FILES: &[(&str, &str)] = &[
+    (
+        "plugins/codex/hooks/hooks.json",
+        include_str!("../integrations/plugins/codex/hooks/hooks.json"),
+    ),
+    (
+        "plugins/cursor/hooks.json",
+        include_str!("../integrations/plugins/cursor/hooks.json"),
+    ),
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Integration {
-    pub id: &'static str,
-    pub name: &'static str,
+    pub id: String,
+    pub name: String,
     /// The agent app is on this computer.
     pub detected: bool,
     /// The HumanNeeded integration is installed and enabled.
     pub installed: bool,
     /// The app can install it with one click.
     pub can_install: bool,
-    pub manual: &'static str,
+    pub manual: String,
+    /// What the user must still do after installing (e.g. approve hooks in Codex).
+    pub after: Option<String>,
+    pub restart_needed: Option<String>,
 }
 
 pub struct Env {
     pub home: Option<PathBuf>,
-    pub claude_dir: Option<PathBuf>,
+    pub appdata: Option<PathBuf>,
     pub path: Option<std::ffi::OsString>,
 }
 
@@ -32,9 +53,37 @@ impl Env {
     pub fn current() -> Self {
         Self {
             home: dirs::home_dir(),
-            claude_dir: crate::paths::claude_dir(),
+            appdata: std::env::var_os("APPDATA").map(PathBuf::from),
             path: std::env::var_os("PATH"),
         }
+    }
+
+    /// `~/x` and `%APPDATA%/x` → absolute paths.
+    fn expand(&self, p: &str) -> Option<PathBuf> {
+        if let Some(rest) = p.strip_prefix("~/") {
+            return Some(self.home.as_ref()?.join(rest));
+        }
+        if p == "~" {
+            return self.home.clone();
+        }
+        if let Some(rest) = p.strip_prefix("%APPDATA%/") {
+            return Some(self.appdata.as_ref()?.join(rest));
+        }
+        Some(PathBuf::from(p))
+    }
+}
+
+fn manifest() -> Value {
+    serde_json::from_str(MANIFEST).expect("embedded manifest is valid JSON")
+}
+
+fn this_os() -> &'static str {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
     }
 }
 
@@ -56,150 +105,539 @@ pub fn which(name: &str, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
     None
 }
 
-fn claude_installed(claude_dir: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(claude_dir.join("settings.json")) else {
-        return false;
+/// `claude` on PATH, else the copy inside the Claude desktop app (newest version folder).
+fn find_command(name: &str, env: &Env) -> Option<PathBuf> {
+    if let Some(p) = which(name, env.path.as_deref()) {
+        return Some(p);
+    }
+    if name != "claude" {
+        return None;
+    }
+    let base = if cfg!(windows) {
+        env.appdata.as_ref()?.join("Claude/claude-code")
+    } else {
+        env.home
+            .as_ref()?
+            .join("Library/Application Support/Claude/claude-code")
     };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return false;
+    let exe = if cfg!(windows) {
+        "claude.exe"
+    } else {
+        "claude"
     };
-    v.get("enabledPlugins")
-        .and_then(|p| p.as_object())
-        .is_some_and(|m| {
-            m.iter()
-                .any(|(k, on)| k.starts_with("humanneeded@") && on.as_bool() == Some(true))
-        })
+    let mut found: Vec<(Vec<u32>, PathBuf)> = Vec::new();
+    for ver in std::fs::read_dir(&base).ok()?.flatten() {
+        let key: Vec<u32> = ver
+            .file_name()
+            .to_string_lossy()
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect();
+        for build in std::fs::read_dir(ver.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let p = build.path().join(exe);
+            if p.is_file() {
+                found.push((key.clone(), p));
+            }
+        }
+    }
+    found.sort();
+    found.pop().map(|(_, p)| p)
+}
+
+fn detected(spec: &Value, env: &Env) -> bool {
+    spec["any"].as_array().into_iter().flatten().any(|c| {
+        if let Some(os) = c["os"].as_str() {
+            if os != this_os() {
+                return false;
+            }
+        }
+        if let Some(d) = c["dir"].as_str() {
+            return env.expand(d).is_some_and(|p| p.is_dir());
+        }
+        if let Some(cmd) = c["command"].as_str() {
+            return find_command(cmd, env).is_some();
+        }
+        false
+    })
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+fn write_json(path: &Path, v: &Value) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let backup = path.with_extension("json.hn-backup");
+    if path.exists() && !backup.exists() {
+        let _ = std::fs::copy(path, &backup);
+    }
+    let tmp = path.with_extension("json.hn-tmp");
+    let text = serde_json::to_string_pretty(v).map_err(|e| e.to_string())? + "\n";
+    std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn unescape(token: &str) -> String {
+    token.replace("~1", "/").replace("~0", "~")
+}
+
+fn pointer_set(root: &mut Value, pointer: &str, value: Value) {
+    let tokens: Vec<String> = pointer.split('/').skip(1).map(unescape).collect();
+    let mut cur = root;
+    for (i, t) in tokens.iter().enumerate() {
+        if !cur.is_object() {
+            *cur = Value::Object(Map::new());
+        }
+        let obj = cur.as_object_mut().unwrap();
+        if i == tokens.len() - 1 {
+            obj.insert(t.clone(), value);
+            return;
+        }
+        cur = obj
+            .entry(t.clone())
+            .or_insert_with(|| Value::Object(Map::new()));
+    }
+}
+
+fn pointer_delete(root: &mut Value, pointer: &str) {
+    let (parent, last) = pointer.rsplit_once('/').unwrap_or(("", pointer));
+    if let Some(Value::Object(m)) = root.pointer_mut(parent) {
+        m.remove(&unescape(last));
+    }
+}
+
+fn is_ours(hook: &Value, marker: &str) -> bool {
+    hook["command"]
+        .as_str()
+        .is_some_and(|c| c.trim_start().starts_with(marker))
+}
+
+/// Every hook command in a hooks file (Claude/Codex groups or Cursor flat entries).
+fn commands(file: &Value) -> Vec<&Value> {
+    let mut out = Vec::new();
+    for entries in file["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|m| m.values())
+    {
+        for e in entries.as_array().into_iter().flatten() {
+            if e.get("command").is_some() {
+                out.push(e);
+            }
+            out.extend(e["hooks"].as_array().into_iter().flatten());
+        }
+    }
+    out
+}
+
+/// Removes our hooks; groups left empty are dropped, as are empty event lists.
+fn remove_ours(file: &mut Value, marker: &str) {
+    let Some(events) = file.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
+        return;
+    };
+    for entries in events.values_mut() {
+        let Some(list) = entries.as_array_mut() else {
+            continue;
+        };
+        list.retain_mut(|e| {
+            if e.get("command").is_some() {
+                return !is_ours(e, marker);
+            }
+            if let Some(hooks) = e.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_ours(h, marker));
+                return !hooks.is_empty();
+            }
+            true
+        });
+    }
+    events.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
+}
+
+fn merge_hooks(file: &mut Value, from: &Value, marker: &str, format: &str) {
+    if !file.is_object() {
+        *file = json!({});
+    }
+    if format == "cursor" && file.get("version").is_none() {
+        file["version"] = json!(1);
+    }
+    remove_ours(file, marker);
+    if !file["hooks"].is_object() {
+        file["hooks"] = json!({});
+    }
+    for (event, entries) in from["hooks"].as_object().into_iter().flatten() {
+        let list = file["hooks"]
+            .as_object_mut()
+            .unwrap()
+            .entry(event.clone())
+            .or_insert_with(|| json!([]));
+        if let (Some(dst), Some(src)) = (list.as_array_mut(), entries.as_array()) {
+            dst.extend(src.iter().cloned());
+        }
+    }
+}
+
+fn installed(spec: &Value, remove: &Value, env: &Env) -> bool {
+    if let (Some(file), Some(ptr)) = (spec["json"].as_str(), spec["pointer"].as_str()) {
+        let v = env.expand(file).and_then(|p| read_json(&p));
+        return v.and_then(|v| v.pointer(ptr).cloned()) == Some(spec["equals"].clone());
+    }
+    if let Some(file) = spec["hooks_json"].as_str() {
+        let marker = spec["marker"]
+            .as_str()
+            .or(remove["marker"].as_str())
+            .unwrap_or("hn event");
+        let v = env.expand(file).and_then(|p| read_json(&p));
+        return v.is_some_and(|v| commands(&v).iter().any(|h| is_ours(h, marker)));
+    }
+    false
+}
+
+fn run_all(cmds: &Value, env: &Env) -> Result<(), String> {
+    for argv in cmds.as_array().into_iter().flatten() {
+        let argv: Vec<&str> = argv
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| a.as_str())
+            .collect();
+        let (name, args) = argv.split_first().ok_or("empty command")?;
+        let exe = find_command(name, env).ok_or(format!("`{name}` wasn't found"))?;
+        let mut cmd = Command::new(&exe);
+        cmd.args(args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let out = cmd
+            .output()
+            .map_err(|e| format!("{}: {e}", exe.display()))?;
+        if !out.status.success() {
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            // Adding an already-known marketplace is not a failure.
+            if args.contains(&"marketplace") && text.to_lowercase().contains("already") {
+                continue;
+            }
+            return Err(format!("`{}` failed: {}", argv.join(" "), text.trim()));
+        }
+    }
+    Ok(())
+}
+
+fn json_edit(spec: &Value, env: &Env) -> Result<(), String> {
+    let path = env
+        .expand(spec["json_merge"].as_str().ok_or("bad manifest")?)
+        .ok_or("no home folder")?;
+    let mut v = read_json(&path).unwrap_or_else(|| json!({}));
+    for (ptr, val) in spec["set"].as_object().into_iter().flatten() {
+        pointer_set(&mut v, ptr, val.clone());
+    }
+    for ptr in spec["delete"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.as_str())
+    {
+        pointer_delete(&mut v, ptr);
+    }
+    write_json(&path, &v)
+}
+
+fn agent(id: &str) -> Result<Value, String> {
+    let m = manifest();
+    m["agents"]
+        .get(id)
+        .cloned()
+        .ok_or(format!("unknown agent {id}"))
+}
+
+fn marker_of(a: &Value) -> String {
+    a["remove"]["marker"]
+        .as_str()
+        .or(a["installed"]["marker"].as_str())
+        .unwrap_or("hn event")
+        .to_string()
 }
 
 pub fn list(env: &Env) -> Vec<Integration> {
-    let has = |n: &str| which(n, env.path.as_deref()).is_some();
-    let home_has = |d: &str| env.home.as_ref().is_some_and(|h| h.join(d).is_dir());
-    let claude_dir_exists = env.claude_dir.as_ref().is_some_and(|d| d.is_dir());
-    vec![
-        Integration {
-            id: "claude",
-            name: "Claude Code",
-            detected: has("claude") || claude_dir_exists,
-            installed: env.claude_dir.as_deref().is_some_and(claude_installed),
-            can_install: has("claude"),
-            manual: "In Claude Code run: /plugin marketplace add human-needed/plugins, then /plugin install humanneeded@humanneeded, then restart Claude Code.",
-        },
-        Integration {
-            id: "codex",
-            name: "Codex",
-            detected: has("codex") || home_has(".codex"),
-            installed: false,
-            can_install: false,
-            manual: "Coming soon.",
-        },
-        Integration {
-            id: "cursor",
-            name: "Cursor",
-            detected: has("cursor") || has("cursor-agent") || home_has(".cursor"),
-            installed: false,
-            can_install: false,
-            manual: "Coming soon.",
-        },
-    ]
+    let m = manifest();
+    let Some(agents) = m["agents"].as_object() else {
+        return vec![];
+    };
+    agents
+        .iter()
+        .map(|(id, a)| {
+            let install = &a["install"];
+            let can_install = install["preferred"]["run"].is_array()
+                || install["fallback"]["json_merge"].is_string()
+                || install["hooks_json_merge"].is_string();
+            Integration {
+                id: id.clone(),
+                name: a["name"].as_str().unwrap_or(id).to_string(),
+                detected: detected(&a["detect"], env),
+                installed: installed(&a["installed"], &a["remove"], env),
+                can_install,
+                manual: a["manual"].as_str().unwrap_or_default().to_string(),
+                after: install["after"].as_str().map(String::from),
+                restart_needed: a["restart_needed"].as_str().map(String::from),
+            }
+        })
+        .collect()
 }
 
-fn run(exe: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new(exe);
-    cmd.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let out = cmd
-        .output()
-        .map_err(|e| format!("{}: {e}", exe.display()))?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    if out.status.success() {
-        Ok(text)
-    } else {
-        Err(format!(
-            "`claude {}` failed: {}",
-            args.join(" "),
-            text.trim()
-        ))
-    }
-}
-
-/// One-click install (Claude Code only in v1).
+/// One-click install. Returns a message for the user (incl. anything they still must do).
 pub fn install(id: &str, env: &Env) -> Result<String, String> {
-    match id {
-        "claude" => {
-            let exe = which("claude", env.path.as_deref())
-                .ok_or("Claude Code's `claude` command wasn't found")?;
-            // Adding an already-known marketplace fails harmlessly; install is what matters.
-            let _ = run(&exe, &["plugin", "marketplace", "add", CLAUDE_MARKETPLACE]);
-            run(
-                &exe,
-                &["plugin", "install", CLAUDE_PLUGIN, "--scope", "user"],
-            )?;
-            Ok("Installed. Restart Claude Code sessions to load it.".into())
+    let a = agent(id)?;
+    let spec = &a["install"];
+    if spec["preferred"].is_object() || spec["fallback"].is_object() {
+        let preferred = match spec["preferred"]["run"].is_array() {
+            true => run_all(&spec["preferred"]["run"], env),
+            false => Err("no command".into()),
+        };
+        if let Err(e) = preferred {
+            if !spec["fallback"].is_object() {
+                return Err(e);
+            }
+            json_edit(&spec["fallback"], env)?;
         }
-        _ => Err("not available yet".into()),
+    } else if let Some(file) = spec["hooks_json_merge"].as_str() {
+        let from = spec["from"].as_str().ok_or("bad manifest")?;
+        let src = FILES
+            .iter()
+            .find(|(p, _)| *p == from)
+            .ok_or(format!("missing {from}"))?
+            .1;
+        let src: Value = serde_json::from_str(src).map_err(|e| e.to_string())?;
+        let path = env.expand(file).ok_or("no home folder")?;
+        let mut v = read_json(&path).unwrap_or_else(|| json!({}));
+        merge_hooks(
+            &mut v,
+            &src,
+            &marker_of(&a),
+            spec["format"].as_str().unwrap_or(""),
+        );
+        write_json(&path, &v)?;
+    } else {
+        return Err("not available yet".into());
     }
+    let mut msg = "Installed.".to_string();
+    if let Some(after) = spec["after"].as_str() {
+        msg = format!("{msg} {after}");
+    } else if let Some(r) = a["restart_needed"].as_str() {
+        if r != "no" {
+            msg = format!("{msg} Takes effect for {r}.");
+        }
+    }
+    Ok(msg)
 }
 
 pub fn uninstall(id: &str, env: &Env) -> Result<String, String> {
-    match id {
-        "claude" => {
-            let exe = which("claude", env.path.as_deref())
-                .ok_or("Claude Code's `claude` command wasn't found")?;
-            run(&exe, &["plugin", "uninstall", CLAUDE_PLUGIN])?;
-            Ok("Removed.".into())
+    let a = agent(id)?;
+    let spec = &a["remove"];
+    if spec["run"].is_array() {
+        if let Err(e) = run_all(&spec["run"], env) {
+            if !spec["fallback"].is_object() {
+                return Err(e);
+            }
+            json_edit(&spec["fallback"], env)?;
         }
-        _ => Err("not available yet".into()),
+    } else if let Some(file) = spec["hooks_json_remove"].as_str() {
+        let path = env.expand(file).ok_or("no home folder")?;
+        if let Some(mut v) = read_json(&path) {
+            remove_ours(&mut v, &marker_of(&a));
+            write_json(&path, &v)?;
+        }
+    } else {
+        return Err("not available".into());
     }
+    Ok("Removed.".into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn detects_claude_plugin_state() {
-        let home = tempfile::tempdir().unwrap();
-        let cdir = home.path().join(".claude");
-        std::fs::create_dir(&cdir).unwrap();
-        let env = Env {
-            home: Some(home.path().into()),
-            claude_dir: Some(cdir.clone()),
+    fn env(home: &Path) -> Env {
+        Env {
+            home: Some(home.into()),
+            appdata: Some(home.join("AppData")),
             path: None,
-        };
-        let c = &list(&env)[0];
-        assert!(c.detected && !c.installed && !c.can_install);
-
-        std::fs::write(
-            cdir.join("settings.json"),
-            r#"{"enabledPlugins":{"humanneeded@humanneeded":false}}"#,
-        )
-        .unwrap();
-        assert!(!list(&env)[0].installed);
-        std::fs::write(
-            cdir.join("settings.json"),
-            r#"{"enabledPlugins":{"humanneeded@humanneeded":true}}"#,
-        )
-        .unwrap();
-        assert!(list(&env)[0].installed);
+        }
     }
 
     #[test]
-    fn nothing_detected_in_empty_home() {
-        let home = tempfile::tempdir().unwrap();
-        let env = Env {
-            home: Some(home.path().into()),
-            claude_dir: Some(home.path().join(".claude")),
-            path: None,
+    fn manifest_has_three_agents() {
+        let d = tempfile::tempdir().unwrap();
+        let l = list(&env(d.path()));
+        let ids: Vec<&str> = l.iter().map(|i| i.id.as_str()).collect();
+        for id in ["claude", "codex", "cursor"] {
+            assert!(ids.contains(&id));
+        }
+        assert!(l
+            .iter()
+            .all(|i| !i.detected && !i.installed && i.can_install));
+        assert!(l
+            .iter()
+            .find(|i| i.id == "codex")
+            .unwrap()
+            .after
+            .as_deref()
+            .unwrap()
+            .contains("trust"));
+    }
+
+    #[test]
+    fn claude_fallback_json_install_and_remove() {
+        let d = tempfile::tempdir().unwrap();
+        let cdir = d.path().join(".claude");
+        std::fs::create_dir(&cdir).unwrap();
+        std::fs::write(
+            cdir.join("settings.json"),
+            r#"{"model":"x","enabledPlugins":{"other@m":true,"humanneeded@humanneeded":false}}"#,
+        )
+        .unwrap();
+        let e = env(d.path());
+        let c = list(&e).into_iter().find(|i| i.id == "claude").unwrap();
+        assert!(c.detected && !c.installed);
+        // No `claude` command here: falls back to editing settings.json.
+        install("claude", &e).unwrap();
+        let v = read_json(&cdir.join("settings.json")).unwrap();
+        assert_eq!(v["model"], "x");
+        assert_eq!(v["enabledPlugins"]["other@m"], true);
+        assert_eq!(
+            v["extraKnownMarketplaces"]["humanneeded"]["source"]["repo"],
+            "human-needed/plugins"
+        );
+        assert!(
+            list(&e)
+                .into_iter()
+                .find(|i| i.id == "claude")
+                .unwrap()
+                .installed
+        );
+        assert!(cdir.join("settings.json.hn-backup").exists());
+        uninstall("claude", &e).unwrap();
+        let v = read_json(&cdir.join("settings.json")).unwrap();
+        assert!(v["enabledPlugins"].get("humanneeded@humanneeded").is_none());
+        assert_eq!(v["enabledPlugins"]["other@m"], true);
+    }
+
+    #[test]
+    fn codex_hooks_merge_keeps_others_and_is_idempotent() {
+        let d = tempfile::tempdir().unwrap();
+        let cdir = d.path().join(".codex");
+        std::fs::create_dir(&cdir).unwrap();
+        std::fs::write(
+            cdir.join("hooks.json"),
+            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"other-tool done"}]}]}}"#,
+        )
+        .unwrap();
+        let e = env(d.path());
+        assert!(
+            list(&e)
+                .into_iter()
+                .find(|i| i.id == "codex")
+                .unwrap()
+                .detected
+        );
+        let msg = install("codex", &e).unwrap();
+        assert!(msg.contains("trust"), "{msg}");
+        install("codex", &e).unwrap(); // twice: no duplicates
+        let v = read_json(&cdir.join("hooks.json")).unwrap();
+        let cmds: Vec<String> = commands(&v)
+            .iter()
+            .filter_map(|h| h["command"].as_str().map(String::from))
+            .collect();
+        assert_eq!(
+            cmds.iter()
+                .filter(|c| c.starts_with("hn event --agent codex --state done"))
+                .count(),
+            1
+        );
+        assert!(cmds.contains(&"other-tool done".to_string()));
+        assert!(
+            list(&e)
+                .into_iter()
+                .find(|i| i.id == "codex")
+                .unwrap()
+                .installed
+        );
+        uninstall("codex", &e).unwrap();
+        let v = read_json(&cdir.join("hooks.json")).unwrap();
+        let cmds: Vec<&Value> = commands(&v);
+        assert_eq!(cmds.len(), 1);
+        assert!(
+            !list(&e)
+                .into_iter()
+                .find(|i| i.id == "codex")
+                .unwrap()
+                .installed
+        );
+    }
+
+    #[test]
+    fn cursor_hooks_created_when_missing() {
+        let d = tempfile::tempdir().unwrap();
+        let e = env(d.path());
+        install("cursor", &e).unwrap();
+        let v = read_json(&d.path().join(".cursor/hooks.json")).unwrap();
+        assert_eq!(v["version"], 1);
+        assert_eq!(
+            v["hooks"]["stop"][0]["command"],
+            "hn event --agent cursor --state done --stdin-json"
+        );
+        assert!(
+            list(&e)
+                .into_iter()
+                .find(|i| i.id == "cursor")
+                .unwrap()
+                .installed
+        );
+        uninstall("cursor", &e).unwrap();
+        assert!(
+            !list(&e)
+                .into_iter()
+                .find(|i| i.id == "cursor")
+                .unwrap()
+                .installed
+        );
+    }
+
+    #[test]
+    fn finds_claude_inside_desktop_app() {
+        let d = tempfile::tempdir().unwrap();
+        let e = env(d.path());
+        let exe = if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
         };
-        assert!(list(&env).iter().all(|i| !i.detected && !i.installed));
+        let base = if cfg!(windows) {
+            d.path().join("AppData/Claude/claude-code")
+        } else {
+            d.path()
+                .join("Library/Application Support/Claude/claude-code")
+        };
+        for v in ["2.1.9", "2.1.321"] {
+            std::fs::create_dir_all(base.join(v).join("abc")).unwrap();
+            std::fs::write(base.join(v).join("abc").join(exe), "").unwrap();
+        }
+        let found = find_command("claude", &e).unwrap();
+        assert!(
+            found.to_string_lossy().contains("2.1.321"),
+            "{}",
+            found.display()
+        );
     }
 
     #[test]

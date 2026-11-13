@@ -112,15 +112,23 @@ fn user_path_has(dir: &std::path::Path) -> bool {
     std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir))
 }
 
+/// D-045: macOS `/usr/local/bin` (GUI-started agents only get launchd's PATH), Linux
+/// `~/.local/bin`. A symlink to our copy, so app updates refresh it.
 #[cfg(unix)]
 fn add_to_user_path(dir: &std::path::Path) -> Result<(), String> {
-    // macOS/Linux: link into ~/.local/bin (on PATH for most shells). OPEN: installer's job.
-    let home = dirs_home().ok_or("no home")?;
-    let local = home.join(".local/bin");
-    std::fs::create_dir_all(&local).map_err(|e| e.to_string())?;
-    let link = local.join(EXE);
+    let target_dir = if cfg!(target_os = "macos") {
+        PathBuf::from("/usr/local/bin")
+    } else {
+        dirs_home().ok_or("no home")?.join(".local/bin")
+    };
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("{}: {e}", target_dir.display()))?;
+    let link = target_dir.join(EXE);
+    if std::fs::read_link(&link).ok().as_deref() == Some(&dir.join(EXE)) {
+        return Ok(());
+    }
     let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(dir.join(EXE), &link).map_err(|e| e.to_string())
+    std::os::unix::fs::symlink(dir.join(EXE), &link)
+        .map_err(|e| format!("{}: {e} (the installer must create it)", link.display()))
 }
 
 #[cfg(unix)]

@@ -78,5 +78,7 @@ mod tests {
         assert_eq!(f.status, ClaudeStatus::Unknown);
         assert_eq!(f.proc_start.as_deref(), Some("123"));
         assert!(parse_session_file(r#"{"sessionId":"s"}"#).is_none());
+        let w = parse_session_file(r#"{"pid":1,"sessionId":"s","status":"waiting"}"#).unwrap();
+        assert_eq!(w.status, ClaudeStatus::Unknown);
     }
 }

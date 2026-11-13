@@ -411,3 +411,34 @@ fn send_raw(ipc: &Path, line: &str) {
     let mut f = std::os::unix::net::UnixStream::connect(ipc).unwrap();
     f.write_all(format!("{line}\n").as_bytes()).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn claude_events_inside_cursor_are_dropped() {
+    let r = rig("cursor").await;
+    for (agent, env) in [("claude", Some("1.7.0")), ("cursor", Some("1.7.0"))] {
+        let mut cmd = Command::new(HN);
+        cmd.args([
+            "event",
+            "--agent",
+            agent,
+            "--state",
+            "working",
+            "--session",
+            agent,
+        ])
+        .env("HN_IPC", &r.ipc);
+        if let Some(v) = env {
+            cmd.env("CURSOR_VERSION", v);
+        }
+        assert!(cmd.output().unwrap().status.success());
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let st = r.engine.status().await;
+    let agents: Vec<&str> = st["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["agent"].as_str().unwrap())
+        .collect();
+    assert_eq!(agents, vec!["cursor"]);
+}

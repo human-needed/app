@@ -97,6 +97,11 @@ fn event(args: &[String]) {
     let Some(ev) = parse_event(args, || read_stdin(Duration::from_millis(400))) else {
         return;
     };
+    // Cursor can import Claude's hooks; inside Cursor those would report a fake Claude session
+    // (app-events §6b, D-045). Cursor's own hooks use --agent cursor.
+    if ev.agent == "claude" && std::env::var_os("CURSOR_VERSION").is_some() {
+        return;
+    }
     let Ok(line) = serde_json::to_string(&ev) else {
         return;
     };

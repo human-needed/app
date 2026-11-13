@@ -457,4 +457,14 @@ mod tests {
         t.check(&Observations::default(), FORGET_IDLE_MS + 1);
         assert!(t.is_empty());
     }
+
+    #[test]
+    fn unknown_claude_status_keeps_state() {
+        // e.g. "waiting" (seen in Claude Code 2.1.321): keep whatever the hooks said (D-045).
+        let mut t = Table::new();
+        t.apply(&ev("claude", "a", AgentState::Needs, 1000), 1000);
+        let obs = claude_file("a", 7, ClaudeStatus::Unknown, 50_000, true);
+        assert!(!t.check(&obs, 10 * 60_000));
+        assert_eq!(t.snapshot().len(), 1);
+    }
 }
