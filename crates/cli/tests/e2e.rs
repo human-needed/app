@@ -1,0 +1,306 @@
+//! End to end on this machine: the real `hn` binary → IPC → engine → puck simulator.
+
+use hn_engine::{Config, Engine, PuckTarget};
+use hn_sim::Sim;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+const HN: &str = env!("CARGO_BIN_EXE_hn");
+
+fn endpoint(name: &str) -> PathBuf {
+    let unique = format!("hn-test-{name}-{}-{}", std::process::id(), hn_sim::now_ms());
+    if cfg!(windows) {
+        PathBuf::from(format!(r"\\.\pipe\{unique}"))
+    } else {
+        std::env::temp_dir().join(unique).join("hn.sock")
+    }
+}
+
+struct Rig {
+    sim: Sim,
+    engine: Engine,
+    ipc: PathBuf,
+    claude: tempfile::TempDir,
+}
+
+async fn rig(name: &str) -> Rig {
+    rig_with(name, None, None).await
+}
+
+async fn rig_with(name: &str, latest: Option<String>, drive: Option<PathBuf>) -> Rig {
+    let sim = Sim::new("2.0.0", drive.clone());
+    let claude = tempfile::tempdir().unwrap();
+    std::fs::create_dir(claude.path().join("sessions")).unwrap();
+    let ipc = endpoint(name);
+    let engine = Engine::start(Config {
+        puck: PuckTarget::Sim(sim.clone()),
+        endpoint: ipc.clone(),
+        claude_dir: Some(claude.path().to_path_buf()),
+        latest_url: latest.unwrap_or_else(|| "file:///nowhere".into()),
+        uf2_drive: drive,
+    })
+    .await
+    .unwrap();
+    let rig = Rig { sim, engine, ipc, claude };
+    rig.wait_puck().await;
+    rig
+}
+
+impl Rig {
+    async fn wait_puck(&self) {
+        for _ in 0..100 {
+            if self.engine.puck_info().is_some() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("puck never connected");
+    }
+
+    /// Runs `hn event …` exactly like a hook would, with the hook JSON on stdin.
+    fn hook(&self, state: &str, session: &str) -> (std::process::Output, Duration) {
+        let start = Instant::now();
+        let mut child = Command::new(HN)
+            .args(["event", "--agent", "claude", "--state", state, "--stdin-json"])
+            .env("HN_IPC", &self.ipc)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        let json = format!(r#"{{"session_id":"{session}","hook_event_name":"x"}}"#);
+        child.stdin.take().unwrap().write_all(json.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out, start.elapsed())
+    }
+
+    fn hn(&self, args: &[&str]) -> serde_json::Value {
+        let out = Command::new(HN).args(args).env("HN_IPC", &self.ipc).output().unwrap();
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stdout)))
+    }
+
+    async fn expect_shown(&self, want: &str, within: Duration) {
+        let mut rx = self.sim.subscribe();
+        let r = tokio::time::timeout(within, rx.wait_for(|s| s == want)).await;
+        assert!(r.is_ok(), "expected puck to show {want}, it shows {}", self.sim.shown());
+    }
+
+    fn claude_file(&self, session: &str, status: &str) {
+        let me = std::process::id();
+        let text = format!(
+            r#"{{"pid":{me},"sessionId":"{session}","status":"{status}","statusUpdatedAt":{}}}"#,
+            hn_sim::now_ms()
+        );
+        std::fs::write(self.claude.path().join(format!("sessions/{me}.json")), text).unwrap();
+    }
+}
+
+#[test]
+fn hn_is_silent_and_fast_without_the_app() {
+    let start = Instant::now();
+    let out = Command::new(HN)
+        .args(["event", "--agent", "claude", "--state", "working", "--stdin-json"])
+        .env("HN_IPC", endpoint("absent"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty() && out.stderr.is_empty());
+    assert!(start.elapsed() < Duration::from_secs(1), "{:?}", start.elapsed());
+    // Garbage args: still exit 0, silent.
+    let out = Command::new(HN).args(["event", "--agent", "BAD"]).env("HN_IPC", endpoint("absent")).output().unwrap();
+    assert!(out.status.success() && out.stdout.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn working_needs_done_flash() {
+    let r = rig("states").await;
+    r.expect_shown("idle", Duration::from_secs(2)).await;
+
+    let (out, took) = r.hook("working", "s1");
+    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
+    assert!(took < Duration::from_secs(1));
+    r.expect_shown("working", Duration::from_secs(2)).await;
+
+    r.hook("needs", "s2");
+    r.expect_shown("needs", Duration::from_secs(2)).await;
+    assert!(r.sim.puck.lock().unwrap().sounds.iter().any(|s| s.starts_with("needs")));
+
+    r.hook("end", "s2");
+    r.expect_shown("working", Duration::from_secs(2)).await;
+
+    r.hook("done", "s1");
+    r.expect_shown("done", Duration::from_secs(2)).await;
+    // done.duration is 5 s in the simulator's defaults; then nothing is active.
+    r.expect_shown("idle", Duration::from_secs(7)).await;
+    assert!(r.engine.status().await["snapshot"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_button_clears_within_10s() {
+    let r = rig("stop").await;
+    r.claude_file("c1", "busy");
+    r.hook("working", "c1");
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    // Busy keeps it lit.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(r.sim.shown(), "working");
+    // Stop: Claude flips the file to idle, no hook runs.
+    let t = Instant::now();
+    r.claude_file("c1", "idle");
+    r.expect_shown("idle", Duration::from_secs(10)).await;
+    eprintln!("stop cleared after {:?}", t.elapsed());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn claude_quit_clears_within_10s() {
+    let r = rig("quit").await;
+    r.claude_file("q1", "busy");
+    r.hook("needs", "q1");
+    r.expect_shown("needs", Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await; // bind to the file
+    std::fs::remove_file(r.claude.path().join(format!("sessions/{}.json", std::process::id()))).unwrap();
+    r.expect_shown("idle", Duration::from_secs(10)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn out_of_order_events_are_ignored() {
+    let r = rig("order").await;
+    let send = |state: &str, ts: u64| {
+        let line = format!(r#"{{"v":1,"agent":"codex","session":"o","state":"{state}","ts":{ts}}}"#);
+        send_raw(&r.ipc, &line);
+    };
+    send("done", 2000);
+    send("working", 1000); // late
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(r.engine.status().await["snapshot"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn puck_reset_gets_state_again() {
+    let r = rig("rehello").await;
+    r.hook("working", "r1");
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    assert_eq!(r.engine.puck("REBOOT").await.unwrap(), "OK");
+    r.expect_shown("bootloader", Duration::from_secs(2)).await;
+    r.expect_shown("working", Duration::from_secs(6)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hn_commands() {
+    let r = rig("cmds").await;
+    r.hook("working", "x1");
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    let st = tokio::task::spawn_blocking({
+        let ipc = r.ipc.clone();
+        move || {
+            let out = Command::new(HN).arg("status").env("HN_IPC", &ipc).output().unwrap();
+            serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(st["puck"]["connected"], true);
+    assert_eq!(st["puck"]["shown"], "working");
+    assert_eq!(st["sessions"][0]["session"], "x1");
+
+    let ipc = r.ipc.clone();
+    let rr = Rig { sim: r.sim.clone(), engine: r.engine.clone(), ipc, claude: tempfile::tempdir().unwrap() };
+    let (mute, set, bad, test) = tokio::task::spawn_blocking(move || {
+        (rr.hn(&["mute", "5"]), rr.hn(&["set", "needs.color", "#112233"]), rr.hn(&["set", "nope", "1"]), rr.hn(&["test", "needs"]))
+    })
+    .await
+    .unwrap();
+    assert_eq!(mute["ok"], true);
+    assert_eq!(set["ok"], true);
+    assert_eq!(bad["ok"], false);
+    assert_eq!(test["ok"], true);
+    assert_eq!(r.sim.puck.lock().unwrap().settings["needs.color"], "#112233");
+    r.expect_shown("test:needs", Duration::from_secs(2)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn second_instance_is_refused() {
+    let r = rig("single").await;
+    let again = Engine::start(Config {
+        puck: PuckTarget::None,
+        endpoint: r.ipc.clone(),
+        claude_dir: None,
+        latest_url: String::new(),
+        uf2_drive: None,
+    })
+    .await;
+    assert!(again.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn firmware_update_via_bootsel() {
+    let dir = tempfile::tempdir().unwrap();
+    let drive = dir.path().join("RPI-RP2");
+    let mut uf2 = vec![0x55, 0x46, 0x32, 0x0A, 0x57, 0x51, 0x5D, 0x9E];
+    uf2.resize(1024, 7);
+    let file = dir.path().join("humanneeded-hn-v2-2.0.1.uf2");
+    std::fs::write(&file, &uf2).unwrap();
+    let sha: String = Sha256::digest(&uf2).iter().map(|b| format!("{b:02x}")).collect();
+    let latest = dir.path().join("latest.json");
+    let url = |p: &Path| format!("file:///{}", p.display().to_string().replace('\\', "/").trim_start_matches('/'));
+    std::fs::write(
+        &latest,
+        format!(
+            r#"{{"hn-v2":{{"version":"2.0.1","file":"humanneeded-hn-v2-2.0.1.uf2","url":"{}","sha256":"{sha}"}}}}"#,
+            url(&file)
+        ),
+    )
+    .unwrap();
+    let r = rig_with("fw", Some(url(&latest)), Some(drive)).await;
+    let avail = r.engine.check_update().await.unwrap();
+    assert!(avail.newer);
+    r.hook("working", "f1");
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    let v = r.engine.update_firmware(|s| eprintln!("update: {s}")).await.unwrap();
+    assert_eq!(v, "2.0.1");
+    assert_eq!(r.sim.fw(), "2.0.1");
+    // State comes back after the update.
+    r.expect_shown("working", Duration::from_secs(5)).await;
+    assert!(!r.engine.check_update().await.unwrap().newer);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn firmware_without_sha_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let latest = dir.path().join("latest.json");
+    let mut uf2 = vec![0x55, 0x46, 0x32, 0x0A, 0x57, 0x51, 0x5D, 0x9E];
+    uf2.resize(1024, 7);
+    let file = dir.path().join("a-2.0.1.uf2");
+    std::fs::write(&file, &uf2).unwrap();
+    let p = |p: &Path| format!("file:///{}", p.display().to_string().replace('\\', "/").trim_start_matches('/'));
+    std::fs::write(&latest, format!(r#"{{"hn-v2":{{"version":"2.0.1","file":"a-2.0.1.uf2","url":"{}"}}}}"#, p(&file))).unwrap();
+    let r = rig_with("fwsha", Some(p(&latest)), None).await;
+    let err = r.engine.update_firmware(|_| {}).await.unwrap_err();
+    assert!(err.contains("SHA-256"), "{err}");
+    assert_eq!(r.sim.fw(), "2.0.0");
+}
+
+fn send_raw(ipc: &Path, line: &str) {
+    use std::io::Write;
+    #[cfg(windows)]
+    let mut f = {
+        let mut tries = 0;
+        loop {
+            match std::fs::OpenOptions::new().read(true).write(true).open(ipc) {
+                Ok(f) => break f,
+                Err(e) if e.raw_os_error() == Some(231) && tries < 100 => {
+                    tries += 1;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+    };
+    #[cfg(unix)]
+    let mut f = std::os::unix::net::UnixStream::connect(ipc).unwrap();
+    f.write_all(format!("{line}\n").as_bytes()).unwrap();
+}

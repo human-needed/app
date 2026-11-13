@@ -1,0 +1,21 @@
+[package]
+name = "hn"
+description = "HumanNeeded `hn` command: forwards agent events to the HumanNeeded app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hn"
+path = "src/main.rs"
+
+[dependencies]
+hn-core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hn-engine.workspace = true
+hn-sim.workspace = true
+tokio.workspace = true
+tempfile = "3"
+sha2 = "0.10"
