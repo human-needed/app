@@ -177,9 +177,9 @@ async function refreshAgents() {
         ? `<button class="tip" type="button" aria-label="Install by hand" data-tip="${esc(a.manual)}">?</button>` : '';
       return `<li><span class="grow">${esc(a.name)}</span>${manual}${right}</li>`;
     }).join('');
+    // Info only (D-046): integrations call hn by absolute path; PATH is a convenience.
     const hn = r.hn;
-    $('hn-note').classList.toggle('hidden', !!hn.on_path);
-    $('hn-note').textContent = hn.on_path ? '' : 'The hn command is not on your PATH yet; agents can\'t reach the app until it is.';
+    $('hn-info').textContent = `hn command: ${hn.path}${hn.on_path ? ' (also on PATH)' : ''}`;
   } catch (e) { showError(e); }
 }
 $('agents').addEventListener('click', async (ev) => {

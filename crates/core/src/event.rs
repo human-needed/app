@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The event contract this build implements (stamped into `hn version` and build outputs).
+pub const CONTRACT: &str = "hn-events/1";
 pub const MAX_LINE: usize = 4096;
 pub const MAX_SESSION_LEN: usize = 128;
 

@@ -22,7 +22,10 @@ fn main() {
             0
         }
         Some("version") | Some("--version") | Some("-V") => {
-            println!("{}", serde_json::json!({ "hn": env!("CARGO_PKG_VERSION") }));
+            println!(
+                "{}",
+                serde_json::json!({ "hn": env!("CARGO_PKG_VERSION"), "contract": hn_core::event::CONTRACT, "target": env!("HN_TARGET") })
+            );
             0
         }
         Some("status") => request("status", vec![]),

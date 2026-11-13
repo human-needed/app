@@ -1,6 +1,6 @@
-//! Puts the `hn` command on the user's PATH (app-events §1): copies `hn` from next to the app
-//! into `<data>/bin` and adds that folder to the user's PATH. The installer will do this later;
-//! the app keeps it right (e.g. after an app update ships a newer `hn`).
+//! The app's own `hn` (app-events §1, §6b, D-046): a copy in `<data>/bin`, which hooks the app
+//! writes call by absolute path. Putting it on PATH is only a convenience for people and skills
+//! (D-046): nothing depends on it.
 
 use hn_engine::paths;
 use serde_json::{json, Value};
@@ -12,6 +12,11 @@ fn bin_dir() -> PathBuf {
     paths::data_dir().join("bin")
 }
 
+/// Same file as `hn_engine::integrations::hn_path()`.
+fn dst() -> PathBuf {
+    hn_engine::integrations::hn_path()
+}
+
 fn bundled() -> Option<PathBuf> {
     let p = std::env::current_exe().ok()?.parent()?.join(EXE);
     p.is_file().then_some(p)
@@ -20,17 +25,18 @@ fn bundled() -> Option<PathBuf> {
 pub fn status() -> Value {
     let on_path = hn_engine::integrations::which("hn", std::env::var_os("PATH").as_deref());
     json!({
-        "installed": bin_dir().join(EXE).is_file(),
-        "dir": bin_dir(),
+        "installed": dst().is_file(),
+        "path": dst(),
         "on_path": on_path.is_some() || user_path_has(&bin_dir()),
     })
 }
 
-pub fn install() -> Result<String, String> {
+/// Copies `hn` (shipped next to the app) to `<data>/bin` when it differs.
+pub fn ensure_copy() -> Result<PathBuf, String> {
     let src = bundled().ok_or("hn isn't next to the app")?;
     let dir = bin_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let dst = dir.join(EXE);
+    let dst = dst();
     let same = std::fs::read(&src).ok() == std::fs::read(&dst).ok();
     if !same {
         // A hook may be running the old copy: move it aside first (works on Windows too).
@@ -38,8 +44,14 @@ pub fn install() -> Result<String, String> {
         let _ = std::fs::rename(&dst, dir.join(format!("{EXE}.old")));
         std::fs::copy(&src, &dst).map_err(|e| format!("copy hn: {e}"))?;
     }
-    add_to_user_path(&dir)?;
-    Ok(format!("{} ready", dst.display()))
+    Ok(dst)
+}
+
+/// Copy + PATH convenience.
+pub fn install() -> Result<String, String> {
+    let dst = ensure_copy()?;
+    add_to_user_path(&bin_dir())?;
+    Ok(format!("{} ready, on PATH", dst.display()))
 }
 
 #[cfg(windows)]

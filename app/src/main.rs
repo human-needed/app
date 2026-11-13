@@ -196,13 +196,19 @@ fn main() {
             app.manage(engine.clone());
             // HN_DEV=1 (development, tests): don't touch PATH or the login items.
             let dev = std::env::var_os("HN_DEV").is_some();
-            // `hn` must be on PATH for agent hooks (app-events §1).
-            if !dev {
-                std::thread::spawn(|| match hn_install::install() {
+            // The app's own `hn` copy, which installed hooks call by absolute path (D-046).
+            // PATH is only a convenience, skipped in dev.
+            std::thread::spawn(move || {
+                let r = if dev {
+                    hn_install::ensure_copy().map(|p| p.display().to_string())
+                } else {
+                    hn_install::install()
+                };
+                match r {
                     Ok(m) => log!("hn: {m}"),
                     Err(e) => log!("hn: {e}"),
-                });
-            }
+                }
+            });
             if first_run && !dev {
                 let _ = std::fs::create_dir_all(paths::data_dir());
                 let _ = std::fs::write(paths::data_dir().join("seen"), "1");
