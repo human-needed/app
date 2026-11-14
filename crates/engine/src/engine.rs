@@ -23,10 +23,13 @@ pub struct Config {
     pub latest_url: String,
     /// Fake RPI-RP2 drive folder (tests); `None` = look for the real drive.
     pub uf2_drive: Option<PathBuf>,
+    /// Local HTTP receiver port (D-047); `None` = off.
+    pub http_port: Option<u16>,
 }
 
 impl Config {
-    /// Defaults, overridable with `HN_PUCK`, `HN_IPC`, `HN_LATEST_URL`, `HN_UF2_DRIVE`.
+    /// Defaults, overridable with `HN_PUCK`, `HN_IPC`, `HN_LATEST_URL`, `HN_UF2_DRIVE`,
+    /// `HN_HTTP_PORT` (`0` = off).
     pub fn from_env() -> Self {
         let puck = std::env::var("HN_PUCK")
             .ok()
@@ -39,6 +42,14 @@ impl Config {
             latest_url: std::env::var("HN_LATEST_URL")
                 .unwrap_or_else(|_| DEFAULT_LATEST_URL.into()),
             uf2_drive: std::env::var_os("HN_UF2_DRIVE").map(PathBuf::from),
+            http_port: match std::env::var("HN_HTTP_PORT")
+                .ok()
+                .and_then(|p| p.parse::<u16>().ok())
+            {
+                Some(0) => None,
+                Some(p) => Some(p),
+                None => Some(crate::http::DEFAULT_PORT),
+            },
         }
     }
 }
@@ -65,6 +76,7 @@ pub struct Engine {
     shared: Arc<Mutex<Shared>>,
     changes: Arc<watch::Sender<u64>>,
     link_events: Arc<tokio::sync::broadcast::Sender<LinkEvent>>,
+    http: Arc<Mutex<crate::http::HttpStatus>>,
 }
 
 fn now_ms() -> u64 {
@@ -75,7 +87,8 @@ impl Engine {
     /// Starts IPC, the puck link and the loop. Fails if another instance owns the IPC endpoint.
     pub async fn start(config: Config) -> Result<Self, String> {
         let (in_tx, in_rx) = mpsc::channel(256);
-        ipc::serve(config.endpoint.clone(), in_tx)
+        // The pipe also keeps the app single-instance (D-047 keeps it as a fallback for `hn`).
+        ipc::serve(config.endpoint.clone(), in_tx.clone())
             .map_err(|e| format!("IPC {}: {e}", config.endpoint.display()))?;
         let (ev_tx, ev_rx) = mpsc::channel(32);
         let link = Link::start(config.puck.clone(), ev_tx);
@@ -93,7 +106,14 @@ impl Engine {
             })),
             changes: Arc::new(changes),
             link_events: Arc::new(bcast),
+            http: Arc::new(Mutex::new(Default::default())),
         };
+        if let Some(port) = engine.config.http_port {
+            let changes = engine.changes.clone();
+            crate::http::serve(port, in_tx, engine.http.clone(), move || {
+                changes.send_modify(|n| *n += 1)
+            });
+        }
         log!(
             "app {APP_VERSION} started; ipc {} puck {}",
             engine.config.endpoint.display(),
@@ -265,6 +285,7 @@ impl Engine {
         json!({
             "ok": true,
             "app": {"version": APP_VERSION, "ipc": self.config.endpoint.display().to_string(), "log": log::path()},
+            "http": self.http.lock().unwrap().clone(),
             "puck": match puck {
                 Some(p) => json!({
                     "connected": true, "port": p.port, "fw": p.hello.fw, "board": p.hello.board,

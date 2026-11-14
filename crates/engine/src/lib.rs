@@ -1,7 +1,8 @@
 //! HumanNeeded app engine. Everything the tray app does, without the UI, so it can run headless
 //! (`hnd`) in CI and integration tests.
 //!
-//! - [`ipc`]: receives `hn` messages (named pipe / Unix socket).
+//! - [`http`]: receives agent hook events on 127.0.0.1 (D-047, the main path).
+//! - [`ipc`]: receives `hn` messages (named pipe / Unix socket; kept as a fallback).
 //! - [`link`]: the only owner of the puck's serial port; `hn-usb/2` client with reconnect.
 //! - [`liveness`]: reads Claude's session files and checks processes.
 //! - [`engine`]: the loop tying them together (session table → SNAP every 10 s / on change).
@@ -10,6 +11,7 @@
 
 pub mod engine;
 pub mod firmware;
+pub mod http;
 pub mod integrations;
 pub mod ipc;
 pub mod link;

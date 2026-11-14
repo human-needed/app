@@ -30,6 +30,15 @@ async fn rig(name: &str) -> Rig {
 }
 
 async fn rig_with(name: &str, latest: Option<String>, drive: Option<PathBuf>) -> Rig {
+    rig_full(name, latest, drive, None).await
+}
+
+async fn rig_full(
+    name: &str,
+    latest: Option<String>,
+    drive: Option<PathBuf>,
+    http_port: Option<u16>,
+) -> Rig {
     let sim = Sim::new("2.0.0", drive.clone());
     let claude = tempfile::tempdir().unwrap();
     std::fs::create_dir(claude.path().join("sessions")).unwrap();
@@ -40,6 +49,7 @@ async fn rig_with(name: &str, latest: Option<String>, drive: Option<PathBuf>) ->
         claude_dir: Some(claude.path().to_path_buf()),
         latest_url: latest.unwrap_or_else(|| "file:///nowhere".into()),
         uf2_drive: drive,
+        http_port,
     })
     .await
     .unwrap();
@@ -308,6 +318,7 @@ async fn second_instance_is_refused() {
         claude_dir: None,
         latest_url: String::new(),
         uf2_drive: None,
+        http_port: None,
     })
     .await;
     assert!(again.is_err());
@@ -441,4 +452,154 @@ async fn claude_events_inside_cursor_are_dropped() {
         .map(|s| s["agent"].as_str().unwrap())
         .collect();
     assert_eq!(agents, vec!["cursor"]);
+}
+
+// ---- D-047: local HTTP receiver ----
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// Sends a raw HTTP request, returns the status code.
+fn http(port: u16, raw: &str) -> u16 {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.write_all(raw.as_bytes()).unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    out.split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0)
+}
+
+fn post(port: u16, path: &str, body: &str, extra: &str) -> u16 {
+    http(
+        port,
+        &format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}\r\n{body}",
+            body.len()
+        ),
+    )
+}
+
+async fn http_rig(name: &str) -> (Rig, u16) {
+    let port = free_port();
+    let r = rig_full(name, None, None, Some(port)).await;
+    for _ in 0..50 {
+        if r.engine.status().await["http"]["listening"] == true {
+            return (r, port);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("http never listened");
+}
+
+async fn sessions(r: &Rig) -> Vec<String> {
+    let st = r.engine.status().await;
+    st["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["session"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_events_drive_the_puck() {
+    let (r, port) = http_rig("http").await;
+    let hook = r#"{"session_id":"h1","hook_event_name":"UserPromptSubmit","prompt":"hi"}"#;
+    let t = Instant::now();
+    assert_eq!(
+        tokio::task::spawn_blocking(move || post(port, "/v1/event/claude/working", hook, ""))
+            .await
+            .unwrap(),
+        204
+    );
+    assert!(
+        t.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        t.elapsed()
+    );
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    let needs = r#"{"session_id":"h1"}"#;
+    assert_eq!(
+        tokio::task::spawn_blocking(move || post(port, "/v1/event/claude/needs", needs, ""))
+            .await
+            .unwrap(),
+        204
+    );
+    r.expect_shown("needs", Duration::from_secs(2)).await;
+    // Chunked body (some HTTP clients send one).
+    let chunked = format!(
+        "POST /v1/event/claude/done HTTP/1.1\r\nHost: localhost:{port}\r\nTransfer-Encoding: chunked\r\n\r\n13\r\n{{\"session_id\":\"h1\"}}\r\n0\r\n\r\n"
+    );
+    assert_eq!(
+        tokio::task::spawn_blocking(move || http(port, &chunked))
+            .await
+            .unwrap(),
+        204
+    );
+    r.expect_shown("done", Duration::from_secs(2)).await;
+    assert_eq!(sessions(&r).await, vec!["h1"]);
+    let health = format!("GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+    assert_eq!(
+        tokio::task::spawn_blocking(move || http(port, &health))
+            .await
+            .unwrap(),
+        200
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_rejects_browsers_and_junk() {
+    let (r, port) = http_rig("httpbad").await;
+    let codes = tokio::task::spawn_blocking(move || {
+        let b = r#"{"session_id":"x"}"#;
+        vec![
+            post(port, "/v1/event/claude/working", b, "Origin: https://evil.example\r\n"),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: evil.example:{port}\r\nContent-Length: 2\r\n\r\n{{}}")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 2000000\r\n\r\n")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")),
+            post(port, "/v1/event/claude/busy", b, ""),
+            post(port, "/v1/event/Bad!/working", b, ""),
+            http(port, &format!("GET /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")),
+            post(port, "/elsewhere", b, ""),
+        ]
+    })
+    .await
+    .unwrap();
+    assert_eq!(codes, vec![403, 403, 413, 411, 400, 400, 405, 404]);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(sessions(&r).await.is_empty());
+    // Not JSON at all: accepted as session "default".
+    assert_eq!(
+        tokio::task::spawn_blocking(move || post(port, "/v1/event/codex/working", "garbage", ""))
+            .await
+            .unwrap(),
+        204
+    );
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    assert_eq!(sessions(&r).await, vec!["default"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_port_in_use_is_reported() {
+    let blocker = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = blocker.local_addr().unwrap().port();
+    let r = rig_full("httpbusy", None, None, Some(port)).await;
+    let mut err = serde_json::Value::Null;
+    for _ in 0..50 {
+        err = r.engine.status().await["http"]["error"].clone();
+        if !err.is_null() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(err.as_str().unwrap_or("").contains("already used"), "{err}");
+    assert_eq!(r.engine.status().await["http"]["listening"], false);
 }

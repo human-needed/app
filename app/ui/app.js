@@ -131,6 +131,13 @@ async function refresh() {
   try { st = await invoke('status'); } catch (e) { showError(e); return; }
   const p = st.puck;
   $('app-version').textContent = `App ${st.app.version}`;
+  // Agents reach the app over local HTTP (D-047). If the port is taken, say so plainly.
+  const h = st.http || {};
+  $('http-note').classList.toggle('hidden', !h.error);
+  $('http-note').textContent = h.error
+    ? `Agents can't reach HumanNeeded: ${h.error}. Close that program or restart your computer; HumanNeeded keeps retrying.`
+    : '';
+  $('http-info').textContent = h.port ? `Agent events: http://127.0.0.1:${h.port}${h.listening ? '' : ' (not listening)'}` : '';
   let shown = 'off';
   if (!p.connected) {
     $('puck-title').textContent = 'Puck not connected';

@@ -38,6 +38,12 @@ fn dot(look: Look) -> Image<'static> {
 }
 
 fn look_of(status: &Value) -> (Look, String) {
+    if let Some(err) = status["http"]["error"].as_str() {
+        return (
+            Look::NoPuck,
+            format!("HumanNeeded: agents can't reach the app ({err})"),
+        );
+    }
     if status["puck"]["connected"] != true {
         return (Look::NoPuck, "HumanNeeded: puck not connected".into());
     }

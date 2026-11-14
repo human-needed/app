@@ -158,6 +158,7 @@ async fn engine_on_real_puck() {
         claude_dir: None,
         latest_url: String::new(),
         uf2_drive: None,
+        http_port: None,
     })
     .await
     .unwrap();
