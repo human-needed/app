@@ -34,5 +34,12 @@ Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none
 
 ## For agent integrations
 
-Call `hn event --agent <id> --state <working|needs|done|idle|end> --stdin-json` from each hook.
-Contract: `hn-events/1` (published here when frozen).
+Post each hook's JSON to the app (D-047):
+
+```
+POST http://127.0.0.1:24816/v1/event/<agent>/<working|needs|done|idle|end>
+```
+
+Reply `204`. Skill endpoints: `GET /v1/status`, `POST /v1/test/<state>`, `/v1/mute/<min>`,
+`/v1/clear`, `/v1/set` `{"key","value"}`. Requests with an `Origin` header or a foreign `Host`
+are refused. `hn` (named pipe) remains as a fallback.

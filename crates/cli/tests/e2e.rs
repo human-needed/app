@@ -563,7 +563,7 @@ async fn http_rejects_browsers_and_junk() {
         vec![
             post(port, "/v1/event/claude/working", b, "Origin: https://evil.example\r\n"),
             http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: evil.example:{port}\r\nContent-Length: 2\r\n\r\n{{}}")),
-            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 2000000\r\n\r\n")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 40000000\r\n\r\n")),
             http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")),
             post(port, "/v1/event/claude/busy", b, ""),
             post(port, "/v1/event/Bad!/working", b, ""),
@@ -602,4 +602,86 @@ async fn http_port_in_use_is_reported() {
     }
     assert!(err.as_str().unwrap_or("").contains("already used"), "{err}");
     assert_eq!(r.engine.status().await["http"]["listening"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_big_post_tool_use_body_is_accepted() {
+    let (r, port) = http_rig("httpbig").await;
+    // A PostToolUse with ~8 MB of tool output: read, mostly discarded, 204, session from the start.
+    let big = format!(
+        r#"{{"session_id":"big1","hook_event_name":"PostToolUse","tool_response":"{}"}}"#,
+        "x".repeat(8 * 1024 * 1024)
+    );
+    let t = Instant::now();
+    let code =
+        tokio::task::spawn_blocking(move || post(port, "/v1/event/claude/working", &big, ""))
+            .await
+            .unwrap();
+    assert_eq!(code, 204);
+    eprintln!("8 MB body answered in {:?}", t.elapsed());
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    assert_eq!(sessions(&r).await, vec!["big1"]);
+}
+
+/// Sends a request and returns (status, body).
+fn http_full(port: u16, raw: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.write_all(raw.as_bytes()).unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    let code = out
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let body = out.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+    (code, body)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_skill_endpoints() {
+    let (r, port) = http_rig("httpskill").await;
+    let req = move |method: &str, path: &str, body: &str| {
+        http_full(
+            port,
+            &format!(
+                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+    };
+    let out = tokio::task::spawn_blocking(move || {
+        vec![
+            req("GET", "/v1/status", ""),
+            req(
+                "POST",
+                "/v1/set",
+                r##"{"key":"needs.color","value":"#9B5BFF"}"##,
+            ),
+            req("POST", "/v1/set", r#"{"key":"done.duration","value":10}"#),
+            req("POST", "/v1/set", r#"{"key":"nope","value":1}"#),
+            req("POST", "/v1/set", "not json"),
+            req("POST", "/v1/mute/60", ""),
+            req("POST", "/v1/test/needs", ""),
+            req("POST", "/v1/clear", ""),
+            req("GET", "/v1/test/needs", ""),
+        ]
+    })
+    .await
+    .unwrap();
+    let json = |i: usize| serde_json::from_str::<serde_json::Value>(&out[i].1).unwrap();
+    assert_eq!(out[0].0, 200);
+    assert_eq!(json(0)["puck"]["connected"], true);
+    assert_eq!(json(1)["ok"], true);
+    assert_eq!(json(2)["ok"], true);
+    assert_eq!(json(3)["ok"], false);
+    assert_eq!(out[4].0, 400);
+    assert_eq!(json(5)["ok"], true);
+    assert_eq!(json(6)["ok"], true);
+    assert_eq!(json(7)["ok"], true);
+    assert_eq!(out[8].0, 405);
+    let p = r.sim.puck.lock().unwrap();
+    assert_eq!(p.settings["needs.color"], "#9b5bff");
+    assert_eq!(p.settings["done.duration"], "10");
 }

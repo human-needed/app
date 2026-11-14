@@ -1,21 +1,27 @@
 //! Local HTTP receiver (D-047): agents post hook events straight to the app.
 //!
-//! `POST http://127.0.0.1:<port>/v1/event/<agent>/<state>[?ttl=<s>]` with the hook's raw JSON as
+//! `POST http://127.0.0.1:24816/v1/event/<agent>/<state>[?ttl=<s>]` with the hook's raw JSON as
 //! the body. The session comes from the body's `session_id` (else `conversation_id`, else
-//! `default`). Reply `204` as soon as the body is read. `GET /v1/health` answers `200` with the
-//! app version (for integrations and support).
+//! `default`). Reply `204` as soon as the body is read, before any puck work (Claude's HTTP hooks
+//! are synchronous with a 1 s timeout). `GET /v1/health` answers `200` with the app version.
+//!
+//! For the skill (app-internal, like `hn status/test/mute/set/clear`): `GET /v1/status`,
+//! `POST /v1/test/<state>`, `POST /v1/mute/<minutes|on|0>`, `POST /v1/clear`,
+//! `POST /v1/set` with `{"key":…,"value":…}`. These answer `200` with JSON (`ok` true/false).
 //!
 //! Only this user's local programs should reach it, so:
 //! - bound to 127.0.0.1 only;
 //! - any `Origin` header → 403 (browsers always send one on cross-site POSTs);
 //! - `Host` must be `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard);
-//! - headers ≤ 8 KB, body ≤ 1 MB (larger → 413, connection closed), 2 s to send it all;
+//! - headers ≤ 8 KB; bodies up to 32 MB are read (PostToolUse can carry 8 MB+, and a 413
+//!   would show as a hook error in Claude), only the first 1 MB is kept; more → 413; 5 s total;
 //! - one request per connection.
 
 use crate::ipc::Incoming;
 use crate::log;
 use hn_core::event::{
-    session_from_hook_json, valid_agent, AgentState, Event, Message, MAX_SESSION_LEN,
+    session_from_hook_json, valid_agent, AgentState, Event, Message, Request as IpcRequest,
+    MAX_SESSION_LEN,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -24,13 +30,17 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 
-/// Default port, agreed with WS-PLUG (hooks hard-code it). `HN_HTTP_PORT` overrides it.
-pub const DEFAULT_PORT: u16 = 47823;
+/// Default port, from WS-PLUG (hooks hard-code it): IANA-unassigned and below every OS's
+/// ephemeral range (47823 was inside Linux's). `HN_HTTP_PORT` overrides it.
+pub const DEFAULT_PORT: u16 = 24816;
 const MAX_HEADERS: usize = 8 * 1024;
-const MAX_BODY: usize = 1024 * 1024;
+/// Bodies larger than this are refused.
+const MAX_BODY: usize = 32 * 1024 * 1024;
+/// Only this much of a body is kept and parsed.
+const KEEP_BODY: usize = 1024 * 1024;
 /// Only this much of the body is used to find the session id (app-events: first 16 KB).
 const SESSION_SCAN: usize = 16 * 1024;
-const READ_TIMEOUT: Duration = Duration::from_secs(2);
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct HttpStatus {
@@ -174,30 +184,31 @@ async fn read_head(s: &mut TcpStream) -> Option<Request> {
     })
 }
 
-/// Reads the body (Content-Length or chunked). Err(code) on a bad or oversized body.
+/// Reads the body (Content-Length or chunked), keeping only the first 1 MB. Err(code) on a bad
+/// or oversized body.
 async fn read_body(s: &mut TcpStream, req: &Request) -> Result<Vec<u8>, u16> {
-    let mut body = req.body_start.clone();
+    let mut chunk = vec![0u8; 64 * 1024];
     let chunked = req
         .header("transfer-encoding")
         .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
     if chunked {
-        let mut chunk = [0u8; 8192];
+        let mut raw = req.body_start.clone();
         loop {
-            if let Some(decoded) = decode_chunked(&body) {
-                return if decoded.len() > MAX_BODY {
-                    Err(413)
-                } else {
-                    Ok(decoded)
-                };
+            if let Some(mut decoded) = decode_chunked(&raw) {
+                if decoded.len() > MAX_BODY {
+                    return Err(413);
+                }
+                decoded.truncate(KEEP_BODY);
+                return Ok(decoded);
             }
-            if body.len() > MAX_BODY + 64 * 1024 {
+            if raw.len() > MAX_BODY + 64 * 1024 {
                 return Err(413);
             }
             let n = s.read(&mut chunk).await.map_err(|_| 400u16)?;
             if n == 0 {
                 return Err(400);
             }
-            body.extend_from_slice(&chunk[..n]);
+            raw.extend_from_slice(&chunk[..n]);
         }
     }
     let len: usize = match req.header("content-length") {
@@ -207,16 +218,23 @@ async fn read_body(s: &mut TcpStream, req: &Request) -> Result<Vec<u8>, u16> {
     if len > MAX_BODY {
         return Err(413);
     }
-    let mut chunk = [0u8; 8192];
-    while body.len() < len {
-        let n = s.read(&mut chunk).await.map_err(|_| 400u16)?;
+    let mut kept = req.body_start.clone();
+    kept.truncate(len);
+    let mut seen = kept.len();
+    kept.truncate(KEEP_BODY);
+    while seen < len {
+        let want = (len - seen).min(chunk.len());
+        let n = s.read(&mut chunk[..want]).await.map_err(|_| 400u16)?;
         if n == 0 {
             return Err(400);
         }
-        body.extend_from_slice(&chunk[..n]);
+        if kept.len() < KEEP_BODY {
+            let take = n.min(KEEP_BODY - kept.len());
+            kept.extend_from_slice(&chunk[..take]);
+        }
+        seen += n;
     }
-    body.truncate(len);
-    Ok(body)
+    Ok(kept)
 }
 
 /// Decodes a complete chunked body; `None` until the final `0` chunk has arrived.
@@ -288,6 +306,46 @@ pub fn session_of(body: &[u8]) -> String {
     "default".into()
 }
 
+/// Asks the engine (same path as `hn status/test/mute/set/clear`) and returns its JSON answer.
+async fn ask(tx: &mpsc::Sender<Incoming>, cmd: &str, args: Vec<String>) -> String {
+    let (rtx, rrx) = tokio::sync::oneshot::channel();
+    let req = IpcRequest {
+        v: 1,
+        cmd: cmd.into(),
+        args,
+    };
+    if tx
+        .send(Incoming {
+            msg: Message::Request(req),
+            reply: Some(rtx),
+        })
+        .await
+        .is_err()
+    {
+        return json!({"ok": false, "error": "app stopping"}).to_string();
+    }
+    match tokio::time::timeout(Duration::from_secs(4), rrx).await {
+        Ok(Ok(answer)) => answer,
+        _ => json!({"ok": false, "error": "no answer"}).to_string(),
+    }
+}
+
+/// `{"key":"needs.color","value":"#9B5BFF"}` (value may be a number) → [key, value].
+fn set_args(body: &[u8]) -> Option<Vec<String>> {
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let key = v.get("key")?.as_str()?.to_string();
+    let value = match v.get("value")? {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+        _ => return None,
+    };
+    let token_ok = |t: &str| {
+        !t.is_empty() && t.len() <= 64 && !t.chars().any(|c| c.is_whitespace() || c.is_control())
+    };
+    (token_ok(&key) && token_ok(&value)).then(|| vec![key, value])
+}
+
 async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
     let Some(req) = read_head(&mut s).await else {
         return;
@@ -296,45 +354,79 @@ async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
         reply(&mut s, 403, "").await;
         return;
     }
-    if req.method == "GET" && req.path == "/v1/health" {
-        let body = json!({"app": "humanneeded", "version": crate::engine::APP_VERSION}).to_string();
-        reply(&mut s, 200, &body).await;
+    let path = req.path.split('?').next().unwrap_or("").to_string();
+    let method = req.method.as_str();
+    if path.starts_with("/v1/event/") {
+        if method != "POST" {
+            reply(&mut s, 405, "").await;
+            return;
+        }
+        let Some((agent, state, ttl)) = parse_event_path(&req.path) else {
+            reply(&mut s, 400, "").await;
+            return;
+        };
+        let body = match read_body(&mut s, &req).await {
+            Ok(b) => b,
+            Err(code) => {
+                reply(&mut s, code, "").await;
+                return;
+            }
+        };
+        // Answer first: the agent waits on this reply.
+        reply(&mut s, 204, "").await;
+        drop(s);
+        let ev = Event {
+            v: 1,
+            agent,
+            session: session_of(&body),
+            state,
+            ts: hn_sim::now_ms(),
+            ttl,
+        };
+        let _ = tx
+            .send(Incoming {
+                msg: Message::Event(ev),
+                reply: None,
+            })
+            .await;
         return;
     }
-    if !req.path.starts_with("/v1/event/") {
-        reply(&mut s, 404, "").await;
-        return;
-    }
-    if req.method != "POST" {
-        reply(&mut s, 405, "").await;
-        return;
-    }
-    let Some((agent, state, ttl)) = parse_event_path(&req.path) else {
-        reply(&mut s, 400, "").await;
-        return;
-    };
-    let body = match read_body(&mut s, &req).await {
-        Ok(b) => b,
-        Err(code) => {
-            reply(&mut s, code, "").await;
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    let answer = match (method, parts.as_slice()) {
+        ("GET", ["v1", "health"]) => {
+            json!({"app": "humanneeded", "version": crate::engine::APP_VERSION}).to_string()
+        }
+        ("GET", ["v1", "status"]) => ask(&tx, "status", vec![]).await,
+        ("POST", ["v1", "test", st]) => ask(&tx, "test", vec![st.to_string()]).await,
+        ("POST", ["v1", "mute", m]) => ask(&tx, "mute", vec![m.to_string()]).await,
+        ("POST", ["v1", "clear"]) => ask(&tx, "clear", vec![]).await,
+        ("POST", ["v1", "set"]) => {
+            let body = match read_body(&mut s, &req).await {
+                Ok(b) => b,
+                Err(code) => {
+                    reply(&mut s, code, "").await;
+                    return;
+                }
+            };
+            match set_args(&body) {
+                Some(args) => ask(&tx, "set", args).await,
+                None => {
+                    let e = json!({"ok": false, "error": "body must be {\"key\":…,\"value\":…}"});
+                    reply(&mut s, 400, &e.to_string()).await;
+                    return;
+                }
+            }
+        }
+        (_, ["v1", "health" | "status" | "test" | "mute" | "clear" | "set", ..]) => {
+            reply(&mut s, 405, "").await;
+            return;
+        }
+        _ => {
+            reply(&mut s, 404, "").await;
             return;
         }
     };
-    reply(&mut s, 204, "").await;
-    let ev = Event {
-        v: 1,
-        agent,
-        session: session_of(&body),
-        state,
-        ts: hn_sim::now_ms(),
-        ttl,
-    };
-    let _ = tx
-        .send(Incoming {
-            msg: Message::Event(ev),
-            reply: None,
-        })
-        .await;
+    reply(&mut s, 200, &answer).await;
 }
 
 #[cfg(test)]
