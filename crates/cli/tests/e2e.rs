@@ -685,3 +685,45 @@ async fn http_skill_endpoints() {
     assert_eq!(p.settings["needs.color"], "#9b5bff");
     assert_eq!(p.settings["done.duration"], "10");
 }
+
+/// D-048: state-changing skill endpoints are POST-only and behind the Host/Origin guards.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_skill_endpoints_are_guarded() {
+    let (r, port) = http_rig("httpguard").await;
+    let codes = tokio::task::spawn_blocking(move || {
+        let mut codes = Vec::new();
+        for path in ["/v1/test/needs", "/v1/mute/60", "/v1/clear", "/v1/set"] {
+            let body = r##"{"key":"needs.color","value":"#000000"}"##;
+            let send = |method: &str, extra: &str, host: &str| {
+                http_full(
+                    port,
+                    &format!(
+                        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n{extra}\r\n{body}",
+                        body.len()
+                    ),
+                )
+                .0
+            };
+            let host = format!("127.0.0.1:{port}");
+            codes.push((path, "GET", send("GET", "", &host)));
+            codes.push((path, "PUT", send("PUT", "", &host)));
+            codes.push((path, "Origin", send("POST", "Origin: https://evil.example\r\n", &host)));
+            codes.push((path, "Host", send("POST", "", &format!("evil.example:{port}"))));
+        }
+        codes
+    })
+    .await
+    .unwrap();
+    for (path, what, code) in &codes {
+        let want = if *what == "GET" || *what == "PUT" {
+            405
+        } else {
+            403
+        };
+        assert_eq!(*code, want, "{what} {path}");
+    }
+    // Nothing got through.
+    let p = r.sim.puck.lock().unwrap();
+    assert_ne!(p.settings["needs.color"], "#000000");
+    assert!(p.sounds.is_empty());
+}
