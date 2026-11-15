@@ -123,6 +123,21 @@ pub fn accounts(files: &[PathBuf]) -> Vec<String> {
     out
 }
 
+/// Fallbacks after Desktop: Claude Code's login (`oauthAccount.accountUuid`):
+/// `$CLAUDE_CONFIG_DIR/.claude.json` when set, `~/.claude.json`, and the older
+/// `~/.claude/.config.json`.
+pub fn code_configs() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(d) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        v.push(PathBuf::from(d).join(".claude.json"));
+    }
+    if let Some(h) = dirs::home_dir() {
+        v.push(h.join(".claude.json"));
+        v.push(h.join(".claude").join(".config.json"));
+    }
+    v
+}
+
 /// Where Claude Desktop keeps `config.json` (undocumented; D-051). Windows: the regular install,
 /// and the Store (MSIX) build's data folder (seen on PC2) and virtualized `%APPDATA%`.
 pub fn desktop_configs() -> Vec<PathBuf> {
@@ -248,7 +263,7 @@ impl CloudConfig {
             dc.into_iter().chain(cj).map(PathBuf::from).collect()
         } else {
             let mut v = desktop_configs();
-            v.extend(dirs::home_dir().map(|h| h.join(".claude.json")));
+            v.extend(code_configs());
             v
         };
         Self {

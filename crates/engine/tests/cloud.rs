@@ -360,3 +360,38 @@ async fn cloud_uses_desktop_account_alone() {
     assert_eq!(c["key"], cloud::route_key(DESKTOP_UUID));
     assert_eq!(c["keys"].as_array().unwrap().len(), 1);
 }
+
+/// Turning the link on reads the accounts again: a Desktop sign-in switch made while it was off
+/// is used at once (no restart).
+#[tokio::test(flavor = "multi_thread")]
+async fn cloud_turn_on_detects_account_switch() {
+    let (ws, post, _seen, _bus) = fake_relay(None).await;
+    let r = rig_with("switch", ws, post, Some(DESKTOP_UUID)).await;
+    r.engine.cloud_set(true).await.unwrap();
+    let c = wait_cloud(&r.engine, "working", 10).await;
+    assert_eq!(c["key"], cloud::route_key(DESKTOP_UUID));
+    r.engine.cloud_set(false).await.unwrap();
+    // The user signs Claude Desktop in to another account.
+    let other = "5e5e5e5e-1111-2222-3333-444444444444";
+    std::fs::write(
+        r._dir
+            .path()
+            .join("Claude-Data/claude_pzs8sxrjxfjjc/config.json"),
+        json!({"lastKnownAccountUuid": other}).to_string(),
+    )
+    .unwrap();
+    r.engine.cloud_set(true).await.unwrap();
+    let c = wait_cloud(&r.engine, "working", 10).await;
+    assert_eq!(
+        c["key"],
+        cloud::route_key(other),
+        "new Desktop account first"
+    );
+    let keys: Vec<_> = c["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k["key"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(keys, [cloud::route_key(other), cloud::route_key(UUID)]);
+}
