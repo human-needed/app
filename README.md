@@ -55,14 +55,17 @@ Cowork and Claude on the web run their hooks in a cloud VM that can't reach this
 `wss://relay-ws.human-needed.com/v1` and shows those chats as `claude-cloud` sessions (dropped after
 120 s without a message; the cloud hook sends a heartbeat every 45 s).
 
-- Route key `K` = first 32 hex of `sha256("humanneeded-account:" + accountUuid)`, from
-  `~/.claude.json`. Not secret.
+- Route key `K` = first 32 hex of `sha256("humanneeded-account:" + accountUuid)`. Not secret.
+  The app listens on every account it finds (D-051), read again every minute: Claude Desktop's
+  `config.json` `lastKnownAccountUuid` (`%APPDATA%\Claude`, the Store build's
+  `%LOCALAPPDATA%\Claude-Data\*`, macOS `~/Library/Application Support/Claude`) and
+  `~/.claude.json`. One connection per account, same install id.
 - This install's id and secret live in the OS credential store (Windows Credential Manager entry
   `cloud-link.HumanNeeded`, macOS Keychain), never in a file. Turning the link off unbinds this PC
   and deletes them.
 - Ping every 4 min; reconnect with backoff 5 → 120 s; every 3 min a probe is POSTed to `K` and must
   come back ("Working" in the window). Up to 3 PCs per account (`key_full` is shown).
-- Dev overrides (only with `HN_DEV=1`): `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`,
+- Dev overrides (only with `HN_DEV=1`): `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`, `HN_CLAUDE_DESKTOP_CONFIG`,
   `HN_CRED_SERVICE`.
 
 ## Build and test
