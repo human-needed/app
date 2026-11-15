@@ -47,6 +47,9 @@ pub struct Integration {
     pub manual: String,
     /// What the user must still do after installing (e.g. approve hooks in Codex).
     pub after: Option<String>,
+    /// Enabled in the agent's settings but not really there yet (e.g. Claude recorded the plugin
+    /// but never downloaded its files): what the user must do to finish.
+    pub finish: Option<String>,
     pub restart_needed: Option<String>,
 }
 
@@ -112,13 +115,33 @@ pub fn which(name: &str, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
     None
 }
 
-/// `claude` on PATH, else the copy inside the Claude desktop app (newest version folder).
+/// `claude` on PATH, else its usual install places (GUI apps often lack the shell's PATH: native
+/// installer `~/.local/bin`, npm global, Homebrew), else the copy inside the Claude desktop app
+/// (newest version folder). The Store (MSIX) Claude Desktop has none of these.
 fn find_command(name: &str, env: &Env) -> Option<PathBuf> {
     if let Some(p) = which(name, env.path.as_deref()) {
         return Some(p);
     }
     if name != "claude" {
         return None;
+    }
+    let mut known: Vec<PathBuf> = Vec::new();
+    if let Some(home) = &env.home {
+        known.push(home.join(".local/bin"));
+        known.push(home.join(".claude/local"));
+    }
+    if cfg!(windows) {
+        if let Some(a) = &env.appdata {
+            known.push(a.join("npm"));
+        }
+    } else {
+        known.push(PathBuf::from("/opt/homebrew/bin"));
+        known.push(PathBuf::from("/usr/local/bin"));
+    }
+    if let Ok(dirs) = std::env::join_paths(known.iter().filter(|d| d.is_dir())) {
+        if let Some(p) = which(name, Some(&dirs)) {
+            return Some(p);
+        }
     }
     let base = if cfg!(windows) {
         env.appdata.as_ref()?.join("Claude/claude-code")
@@ -324,11 +347,62 @@ fn merge_hooks(file: &mut Value, from: &Value, marker: &str, agent: &str, format
     }
 }
 
-fn installed(a: &Value, env: &Env) -> bool {
+/// `/enabledPlugins/<plugin>` → `<plugin>`.
+fn enabled_plugin(pointer: &str) -> Option<String> {
+    pointer.strip_prefix("/enabledPlugins/").map(unescape)
+}
+
+/// Claude really has the plugin: `plugins/installed_plugins.json` lists it with an `installPath`
+/// that holds `hooks/hooks.json` (D-PC2: enabling it in settings.json alone records it but may
+/// never download the files).
+fn claude_plugin_files(settings: &Path, plugin: &str) -> bool {
+    let Some(dir) = settings.parent() else {
+        return false;
+    };
+    let Some(v) = read_json(&dir.join("plugins/installed_plugins.json")) else {
+        return false;
+    };
+    let entry = &v["plugins"][plugin];
+    // v2: a list of installs (one per scope); older: one object.
+    let installs: Vec<&Value> = match entry {
+        Value::Array(a) => a.iter().collect(),
+        Value::Object(_) => vec![entry],
+        _ => vec![],
+    };
+    installs.iter().any(|i| {
+        i["installPath"].as_str().is_some_and(|p| {
+            let p = PathBuf::from(p);
+            let p = if p.is_absolute() { p } else { dir.join(p) };
+            p.join("hooks/hooks.json").is_file()
+        })
+    })
+}
+
+/// (installed, needs finishing in the agent app).
+fn installed_state(a: &Value, env: &Env) -> (bool, bool) {
     let spec = &a["installed"];
     if let (Some(file), Some(ptr)) = (spec["json"].as_str(), spec["pointer"].as_str()) {
-        let v = env.expand(file).and_then(|p| read_json(&p));
-        return v.and_then(|v| v.pointer(ptr).cloned()) == Some(spec["equals"].clone());
+        let Some(path) = env.expand(file) else {
+            return (false, false);
+        };
+        let enabled =
+            read_json(&path).and_then(|v| v.pointer(ptr).cloned()) == Some(spec["equals"].clone());
+        if !enabled {
+            return (false, false);
+        }
+        return match enabled_plugin(ptr) {
+            Some(plugin) if claude_plugin_files(&path, &plugin) => (true, false),
+            Some(_) => (false, true),
+            None => (true, false),
+        };
+    }
+    (installed(a, env), false)
+}
+
+fn installed(a: &Value, env: &Env) -> bool {
+    let spec = &a["installed"];
+    if spec["json"].is_string() {
+        return installed_state(a, env).0;
     }
     if let Some(file) = spec["hooks_json"].as_str() {
         // Installed = every hook of the current template is there, exactly. Older hooks (1.0
@@ -451,11 +525,13 @@ pub fn list(env: &Env) -> Vec<Integration> {
             let can_install = install["preferred"]["run"].is_array()
                 || install["fallback"]["json_merge"].is_string()
                 || install["hooks_json_merge"].is_string();
+            let (installed, unfinished) = installed_state(a, env);
             Integration {
                 id: id.clone(),
                 name: a["name"].as_str().unwrap_or(id).to_string(),
                 detected: detected(&a["detect"], env),
-                installed: installed(a, env),
+                installed,
+                finish: unfinished.then(|| FINISH_IN_CLAUDE.to_string()),
                 can_install,
                 manual: a["manual"].as_str().unwrap_or_default().to_string(),
                 after: install["after"].as_str().map(String::from),
@@ -464,6 +540,11 @@ pub fn list(env: &Env) -> Vec<Integration> {
         })
         .collect()
 }
+
+/// When Claude only got the settings.json entries (no `claude` command), it may record the
+/// plugin without downloading it; the user finishes in Claude's own Plugins menu.
+pub const FINISH_IN_CLAUDE: &str =
+    "Finish in Claude: click + next to the prompt box → Plugins → install humanneeded.";
 
 /// One-click install. Returns a message for the user (incl. anything they still must do).
 pub fn install(id: &str, env: &Env) -> Result<String, String> {
@@ -479,6 +560,10 @@ pub fn install(id: &str, env: &Env) -> Result<String, String> {
                 return Err(e);
             }
             json_edit(&spec["fallback"], env)?;
+            // Proven unreliable (PC2): Claude may never fetch the files. Say what's left.
+            if !installed(&a, env) {
+                return Ok(FINISH_IN_CLAUDE.into());
+            }
         }
     } else if let Some(file) = spec["hooks_json_merge"].as_str() {
         let src = template_for(&spec["from"])?;
@@ -682,8 +767,23 @@ mod tests {
         let e = env(d.path());
         let c = list(&e).into_iter().find(|i| i.id == "claude").unwrap();
         assert!(c.detected && !c.installed);
-        // No `claude` command here: falls back to editing settings.json.
-        install("claude", &e).unwrap();
+        // No `claude` command here: falls back to editing settings.json, which Claude may never
+        // act on: not "installed" until the plugin files exist.
+        let msg = install("claude", &e).unwrap();
+        assert_eq!(msg, FINISH_IN_CLAUDE);
+        let c = list(&e).into_iter().find(|i| i.id == "claude").unwrap();
+        assert!(!c.installed && c.finish.as_deref() == Some(FINISH_IN_CLAUDE));
+        // Claude downloads it (what its Plugins menu does): now installed.
+        let ip = cdir.join("plugins/cache/humanneeded/humanneeded/2.0.0");
+        std::fs::create_dir_all(ip.join("hooks")).unwrap();
+        std::fs::write(ip.join("hooks/hooks.json"), "{}").unwrap();
+        std::fs::write(
+            cdir.join("plugins/installed_plugins.json"),
+            json!({"version": 2, "plugins": {"humanneeded@humanneeded": [
+                {"scope": "user", "installPath": ip, "version": "2.0.0"}]}})
+            .to_string(),
+        )
+        .unwrap();
         let v = read_json(&cdir.join("settings.json")).unwrap();
         assert_eq!(v["model"], "x");
         assert_eq!(v["enabledPlugins"]["other@m"], true);
@@ -691,13 +791,8 @@ mod tests {
             v["extraKnownMarketplaces"]["humanneeded"]["source"]["repo"],
             "human-needed/plugins"
         );
-        assert!(
-            list(&e)
-                .into_iter()
-                .find(|i| i.id == "claude")
-                .unwrap()
-                .installed
-        );
+        let c = list(&e).into_iter().find(|i| i.id == "claude").unwrap();
+        assert!(c.installed && c.finish.is_none());
         assert!(cdir.join("settings.json.hn-backup").exists());
         uninstall("claude", &e).unwrap();
         let v = read_json(&cdir.join("settings.json")).unwrap();
@@ -783,6 +878,62 @@ mod tests {
                 .find(|i| i.id == "cursor")
                 .unwrap()
                 .installed
+        );
+    }
+
+    #[test]
+    fn claude_recorded_without_files_is_not_installed() {
+        // PC2: installed_plugins.json names an installPath that doesn't exist.
+        let d = tempfile::tempdir().unwrap();
+        let cdir = d.path().join(".claude");
+        std::fs::create_dir_all(cdir.join("plugins")).unwrap();
+        std::fs::write(
+            cdir.join("settings.json"),
+            r#"{"enabledPlugins":{"humanneeded@humanneeded":true}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            cdir.join("plugins/installed_plugins.json"),
+            r#"{"version":2,"plugins":{"humanneeded@humanneeded":[{"scope":"user","installPath":"plugins\\cache\\humanneeded\\humanneeded\\2.0.0-dev.2"}]}}"#,
+        )
+        .unwrap();
+        let c = list(&env(d.path()))
+            .into_iter()
+            .find(|i| i.id == "claude")
+            .unwrap();
+        assert!(!c.installed);
+        assert_eq!(c.finish.as_deref(), Some(FINISH_IN_CLAUDE));
+        // Relative installPath that does exist (with hooks) counts.
+        let ip = cdir.join("plugins/cache/humanneeded/humanneeded/2.0.0-dev.2/hooks");
+        std::fs::create_dir_all(&ip).unwrap();
+        std::fs::write(ip.join("hooks.json"), "{}").unwrap();
+        if cfg!(windows) {
+            assert!(
+                list(&env(d.path()))
+                    .into_iter()
+                    .find(|i| i.id == "claude")
+                    .unwrap()
+                    .installed
+            );
+        }
+    }
+
+    #[test]
+    fn finds_claude_in_known_places() {
+        let d = tempfile::tempdir().unwrap();
+        let e = env(d.path());
+        let exe = if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        };
+        std::fs::create_dir_all(d.path().join(".local/bin")).unwrap();
+        std::fs::write(d.path().join(".local/bin").join(exe), "").unwrap();
+        let found = find_command("claude", &e).unwrap();
+        assert!(
+            found.starts_with(d.path().join(".local/bin")),
+            "{}",
+            found.display()
         );
     }
 

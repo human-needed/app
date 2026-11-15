@@ -182,6 +182,7 @@ async function refreshAgents() {
     $('agents').innerHTML = r.agents.map((a) => {
       let right;
       if (a.installed) right = '<span class="ok">Installed</span>';
+      else if (a.finish) right = `<span class="muted">${esc(a.finish)}</span>`;
       else if (!a.detected) right = '<span class="muted">Not found on this computer</span>';
       else if (a.can_install) right = `<button type="button" class="primary" data-install="${esc(a.id)}">Install</button>`;
       else right = `<span class="muted">${esc(a.manual)}</span>`;
