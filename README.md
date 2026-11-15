@@ -14,6 +14,24 @@ under a lease, so the light always clears itself if anything goes wrong.
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
 | `app` | Tauri tray app + settings window (form built from the puck's `SCHEMA`) |
 
+## Test builds
+
+Pre-releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
+`.github/workflows/release.yml` from a `v*` tag). They are **unsigned**, so the OS warns once.
+Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on Windows,
+`shasum -a 256 <file>` on macOS).
+
+- **Windows:** run `HumanNeeded_<version>_x64-setup.exe`. If SmartScreen says "Windows protected
+  your PC": **More info → Run anyway**. Installs per user (no admin).
+- **macOS** (Apple silicon and Intel): open the `.dmg`, drag HumanNeeded to Applications, then open
+  it. If macOS says it can't check it for malware: **System Settings → Privacy & Security → Open
+  Anyway** (at the bottom), then open it again. On older macOS, right-click the app → **Open** also
+  works.
+
+Not yet on macOS: no Dock-less mode (it shows a Dock icon), and liveness for Codex/Cursor uses the
+2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
+untested there.
+
 ## Build and test
 
 ```
