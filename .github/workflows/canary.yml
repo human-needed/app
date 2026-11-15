@@ -1,0 +1,109 @@
+# Agent-compatibility canary (pm/contracts/testing.md §1, D-042). See canary/README.md.
+name: canary
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # nightly, 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Which agent
+        type: choice
+        options: [all, claude, codex, cursor]
+        default: all
+      break_hook:
+        description: "Break test: drop this hook event from our integration (e.g. Stop, stop). Opens a [break test] issue."
+        type: string
+        default: ""
+  pull_request:
+    paths: ["canary/**", ".github/workflows/canary.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Key-free: real hook files from plugins main against the checker. Runs on PRs too.
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with: { repository: human-needed/plugins, path: plugins }
+      - run: node canary/selftest.mjs
+        env: { PLUGINS_DIR: plugins }
+
+  agent:
+    if: github.event_name != 'pull_request'
+    needs: selftest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [claude, codex, cursor]
+    env:
+      PLUGINS_DIR: plugins
+      OUT_DIR: canary-out
+      BREAK_HOOK: ${{ inputs.break_hook }}
+      CANARY_MODEL_CLAUDE: ${{ vars.CANARY_MODEL_CLAUDE }}
+      CANARY_MODEL_CODEX: ${{ vars.CANARY_MODEL_CODEX }}
+      CANARY_MODEL_CURSOR: ${{ vars.CANARY_MODEL_CURSOR }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with: { repository: human-needed/plugins, path: plugins }
+      - name: Key present?
+        id: key
+        env:
+          K_claude: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}${{ secrets.ANTHROPIC_API_KEY }}
+          K_codex: ${{ secrets.OPENAI_API_KEY }}
+          K_cursor: ${{ secrets.CURSOR_API_KEY }}
+          PICK: ${{ inputs.agent || 'all' }}
+        run: |
+          K=$(printenv "K_${{ matrix.agent }}" || true)
+          echo "has=$([ -n "$K" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "sel=$([ "$PICK" = all ] || [ "$PICK" = "${{ matrix.agent }}" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Install latest agent CLI
+        if: steps.key.outputs.has == 'true' && steps.key.outputs.sel == 'true'
+        continue-on-error: true # run.mjs then reports "could not run"
+        run: |
+          case "${{ matrix.agent }}" in
+            claude) npm install -g @anthropic-ai/claude-code@latest ;;
+            codex)  npm install -g @openai/codex@latest ;;
+            cursor) curl -fsS https://cursor.com/install | bash && echo "$HOME/.local/bin" >> "$GITHUB_PATH" ;;
+          esac
+      - name: Run canary
+        if: steps.key.outputs.sel == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && secrets.OPENAI_API_KEY || '' }}
+          CURSOR_API_KEY: ${{ matrix.agent == 'cursor' && secrets.CURSOR_API_KEY || '' }}
+        run: node canary/run.mjs ${{ matrix.agent }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canary-${{ matrix.agent }}
+          path: canary-out/
+          if-no-files-found: ignore
+
+  report:
+    if: always() && github.event_name != 'pull_request' && needs.agent.result != 'skipped'
+    needs: agent
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with: { path: results }
+      - run: node canary/report.mjs results
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
