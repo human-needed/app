@@ -9,7 +9,7 @@ under a lease, so the light always clears itself if anything goes wrong.
 | Part | What |
 |---|---|
 | `crates/core` | `hn-events/1` (agent → app), host side of `hn-usb/2`, session table + liveness rules. No I/O |
-| `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, integration manifests, proxy check. `hnd` = headless app |
+| `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, per-agent status, proxy check. `hnd` = headless app |
 | `crates/cli` | `hn`: **dev and test tool only** (talks to the app over a named pipe / Unix socket; used by the e2e tests). Agents no longer use it (app-events 2.0) and it isn't shipped |
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
 | `app` | Tauri tray app + settings window (form built from the puck's `SCHEMA`) |
@@ -53,6 +53,10 @@ Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none
 (fake drive folder), `HN_DATA_DIR`, `HN_DEV=1` (don't register start-at-login or clean up PATH).
 
 ## For agent integrations (app-events 2.0)
+
+The user installs each agent's plugin (guides: https://human-needed.com/start/, D-054). The
+window only shows **Connected** for an agent that sent an event in the last 7 days (kept in
+`agents.json` in the data folder), else **Not set up**.
 
 Post each hook's JSON to the app (D-047), with `Content-Type: application/json`:
 

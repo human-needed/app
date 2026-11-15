@@ -2,7 +2,7 @@
 
 use crate::ipc::{self, Incoming};
 use crate::link::{Link, LinkEvent, PuckTarget};
-use crate::{firmware, liveness, log, paths};
+use crate::{agents, firmware, liveness, log, paths};
 use hn_core::event::Message;
 use hn_core::proto::{snap_line, Hello, SnapState, LEASE_S, RESEND_MS};
 use hn_core::sessions::Table;
@@ -25,6 +25,8 @@ pub struct Config {
     pub uf2_drive: Option<PathBuf>,
     /// Local HTTP receiver port (D-047); `None` = off.
     pub http_port: Option<u16>,
+    /// Last event per agent (D-054 status); `None` = memory only.
+    pub agents_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -50,6 +52,7 @@ impl Config {
                 Some(p) => Some(p),
                 None => Some(crate::http::DEFAULT_PORT),
             },
+            agents_file: Some(paths::data_dir().join("agents.json")),
         }
     }
 }
@@ -67,6 +70,7 @@ struct Shared {
     last_sent: Instant,
     /// Set while a firmware update runs (no snapshots then).
     updating: Option<String>,
+    seen: agents::Seen,
 }
 
 #[derive(Clone)]
@@ -94,6 +98,7 @@ impl Engine {
         let link = Link::start(config.puck.clone(), ev_tx);
         let (changes, _) = watch::channel(0);
         let (bcast, _) = tokio::sync::broadcast::channel(32);
+        let seen = agents::Seen::load(config.agents_file.clone());
         let engine = Self {
             config,
             link,
@@ -103,6 +108,7 @@ impl Engine {
                 last_snap: None,
                 last_sent: Instant::now(),
                 updating: None,
+                seen,
             })),
             changes: Arc::new(changes),
             link_events: Arc::new(bcast),
@@ -190,7 +196,11 @@ impl Engine {
     fn incoming(&self, inc: Incoming) {
         match inc.msg {
             Message::Event(ev) => {
-                let fx = self.shared.lock().unwrap().table.apply(&ev, now_ms());
+                let fx = {
+                    let mut s = self.shared.lock().unwrap();
+                    s.seen.saw(&ev.agent, now_ms());
+                    s.table.apply(&ev, now_ms())
+                };
                 log!("event {} {} {:?}", ev.agent, ev.session, ev.state);
                 if fx.flash_done && self.puck_ready() {
                     self.link.send("FLASH done");
@@ -265,13 +275,14 @@ impl Engine {
     }
 
     pub async fn status(&self) -> Value {
-        let (puck, sessions, snapshot, updating) = {
+        let (puck, sessions, snapshot, updating, agents) = {
             let s = self.shared.lock().unwrap();
             (
                 s.puck.clone(),
                 s.table.list(),
                 s.table.snapshot(),
                 s.updating.clone(),
+                s.seen.list(now_ms()),
             )
         };
         let puck_status = if puck.as_ref().is_some_and(|p| p.hello.compatible()) {
@@ -298,6 +309,9 @@ impl Engine {
                 None => json!({"connected": false, "target": self.config.puck.describe(), "updating": updating}),
             },
             "sessions": sessions,
+            // D-054: read-only; the user installs the plugins (guides at agents::SETUP_URL).
+            "agents": agents,
+            "setup_url": agents::SETUP_URL,
             "snapshot": snapshot.iter().map(|(id, st)| json!({"id": id, "state": st.as_str()})).collect::<Vec<_>>(),
         })
     }
