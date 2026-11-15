@@ -32,6 +32,23 @@ Not yet on macOS: no Dock-less mode (it shows a Dock icon), and liveness for Cod
 2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
 untested there.
 
+## Cloud chats (relay-api §3)
+
+Cowork and Claude on the web run their hooks in a cloud VM that can't reach this PC. With
+**Light the puck for cloud chats** on (off by default), the app keeps a WebSocket to
+`wss://relay-ws.human-needed.com/v1` and shows those chats as `claude-cloud` sessions (dropped after
+120 s without a message; the cloud hook sends a heartbeat every 45 s).
+
+- Route key `K` = first 32 hex of `sha256("humanneeded-account:" + accountUuid)`, from
+  `~/.claude.json`. Not secret.
+- This install's id and secret live in the OS credential store (Windows Credential Manager entry
+  `cloud-link.HumanNeeded`, macOS Keychain), never in a file. Turning the link off unbinds this PC
+  and deletes them.
+- Ping every 4 min; reconnect with backoff 5 → 120 s; every 3 min a probe is POSTed to `K` and must
+  come back ("Working" in the window). Up to 3 PCs per account (`key_full` is shown).
+- Dev overrides (only with `HN_DEV=1`): `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`,
+  `HN_CRED_SERVICE`.
+
 ## Build and test
 
 ```
