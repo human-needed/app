@@ -1,5 +1,7 @@
 # HumanNeeded app
 
+[![tests](https://github.com/human-needed/app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/human-needed/app/actions/workflows/ci.yml)
+
 The per-user tray app that owns the HumanNeeded puck: it merges the sessions of every agent
 (Claude Code, Codex, Cursor, …), checks they are still alive, and sends the puck one snapshot
 under a lease, so the light always clears itself if anything goes wrong.
