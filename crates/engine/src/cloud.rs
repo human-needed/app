@@ -5,8 +5,11 @@
 //! WebSocket to the relay and feeds what arrives into the session table, so the puck lights for
 //! them too. Opt-in (off by default).
 //!
-//! - `K = sha256("humanneeded-account:" + accountUuid)[:32 hex]`, `accountUuid` from
-//!   `~/.claude.json` (`oauthAccount.accountUuid`). Not secret.
+//! - `K = sha256("humanneeded-account:" + accountUuid)[:32 hex]`. Not secret. The app listens on
+//!   every account it finds (D-051): Claude Desktop's `config.json` (`lastKnownAccountUuid`, follows
+//!   the Desktop sign-in, which runs Cowork) and `~/.claude.json` (`oauthAccount.accountUuid`,
+//!   Claude Code's login; can be stale or another account). One connection per `K`, same
+//!   `install_id`; the files are read again every minute.
 //! - `install_id` (128-bit) and secret `S` (256-bit) are made when the link is turned on and kept in
 //!   the OS credential store (Windows Credential Manager, macOS Keychain); never in a file.
 //! - Connect, `hello` at once, `ping` every 4 min, reconnect with backoff 5 → 120 s (the relay
@@ -24,6 +27,7 @@ use hn_core::event::{AgentState, Event, Message};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -42,6 +46,8 @@ const BACKOFF_MIN: Duration = Duration::from_secs(5);
 const BACKOFF_MAX: Duration = Duration::from_secs(120);
 /// A connection that lasted this long resets the backoff.
 const STABLE: Duration = Duration::from_secs(60);
+/// How often the account files are read again (sign-in changes, new accounts).
+const RESCAN: Duration = Duration::from_secs(60);
 
 /// Route key from Claude's account id (same as the cloud hook).
 pub fn route_key(account_uuid: &str) -> String {
@@ -65,15 +71,97 @@ fn random_hex(bytes: usize) -> String {
     hex(&b)
 }
 
-/// `accountUuid` from `~/.claude.json`.
-pub fn account_uuid(claude_json: &Path) -> Option<String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(claude_json).ok()?).ok()?;
+/// The account id in a Claude file: `~/.claude.json` (`oauthAccount.accountUuid`) or Claude
+/// Desktop's `config.json` (`lastKnownAccountUuid`).
+pub fn account_uuid(file: &Path) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
     let id = v["oauthAccount"]["accountUuid"]
         .as_str()
-        .or(v["accountUuid"].as_str())?;
+        .or(v["accountUuid"].as_str())
+        .or(v["lastKnownAccountUuid"].as_str())?;
     let ok =
         !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     ok.then(|| id.to_string())
+}
+
+/// `pattern` with one `*` inside path components (e.g. `Claude_*`) -> the existing files it names.
+pub fn expand(pattern: &Path) -> Vec<PathBuf> {
+    let mut found = vec![PathBuf::new()];
+    for comp in pattern.components() {
+        let part = comp.as_os_str().to_string_lossy().to_string();
+        let Some((pre, post)) = part.split_once('*') else {
+            found.iter_mut().for_each(|p| p.push(comp));
+            continue;
+        };
+        let mut next: Vec<PathBuf> = found
+            .iter()
+            .filter_map(|dir| std::fs::read_dir(dir).ok())
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.len() >= pre.len() + post.len() && n.starts_with(pre) && n.ends_with(post)
+            })
+            .map(|e| e.path())
+            .collect();
+        next.sort();
+        found = next;
+    }
+    found.into_iter().filter(|p| p.is_file()).collect()
+}
+
+/// Every account found, in file order, no duplicates.
+pub fn accounts(files: &[PathBuf]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in files.iter().flat_map(|p| expand(p)) {
+        if let Some(a) = account_uuid(&f) {
+            if !out.contains(&a) {
+                out.push(a);
+            }
+        }
+    }
+    out
+}
+
+/// Fallbacks after Desktop: Claude Code's login (`oauthAccount.accountUuid`):
+/// `$CLAUDE_CONFIG_DIR/.claude.json` when set, `~/.claude.json`, and the older
+/// `~/.claude/.config.json`.
+pub fn code_configs() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(d) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        v.push(PathBuf::from(d).join(".claude.json"));
+    }
+    if let Some(h) = dirs::home_dir() {
+        v.push(h.join(".claude.json"));
+        v.push(h.join(".claude").join(".config.json"));
+    }
+    v
+}
+
+/// Where Claude Desktop keeps `config.json` (undocumented; D-051). Windows: the regular install,
+/// and the Store (MSIX) build's data folder (seen on PC2) and virtualized `%APPDATA%`.
+pub fn desktop_configs() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if cfg!(windows) {
+        if let Some(a) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            v.push(a.join("Claude").join("config.json"));
+        }
+        if let Some(l) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            v.push(l.join("Claude-Data").join("*").join("config.json"));
+            v.push(
+                l.join("Packages")
+                    .join("Claude_*")
+                    .join("LocalCache/Roaming/Claude/config.json"),
+            );
+        }
+    } else if let Some(h) = dirs::home_dir() {
+        if cfg!(target_os = "macos") {
+            v.push(h.join("Library/Application Support/Claude/config.json"));
+        } else {
+            v.push(h.join(".config/Claude/config.json"));
+        }
+    }
+    v
 }
 
 /// This install's identity on the relay.
@@ -155,8 +243,9 @@ impl CredStore for MemCreds {
 pub struct CloudConfig {
     pub ws_url: String,
     pub post_url: String,
-    /// `~/.claude.json`.
-    pub claude_json: Option<PathBuf>,
+    /// Files holding Claude account ids, in order (Desktop `config.json`s, `~/.claude.json`);
+    /// a `*` in a component matches part of a folder name.
+    pub account_files: Vec<PathBuf>,
     /// `{"enabled": bool}` (no secrets).
     pub settings_file: PathBuf,
     pub creds: Arc<dyn CredStore>,
@@ -164,16 +253,23 @@ pub struct CloudConfig {
 
 impl CloudConfig {
     /// Real endpoints and stores. With `HN_DEV=1` only (relay-api §4 rule for overrides):
-    /// `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`, `HN_CRED_SERVICE`.
+    /// `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`, `HN_CLAUDE_DESKTOP_CONFIG`,
+    /// `HN_CRED_SERVICE` (setting either account file uses only the ones set).
     pub fn from_env() -> Self {
         let dev = std::env::var_os("HN_DEV").is_some();
         let var = |n: &str| dev.then(|| std::env::var(n).ok()).flatten();
+        let (cj, dc) = (var("HN_CLAUDE_JSON"), var("HN_CLAUDE_DESKTOP_CONFIG"));
+        let account_files = if cj.is_some() || dc.is_some() {
+            dc.into_iter().chain(cj).map(PathBuf::from).collect()
+        } else {
+            let mut v = desktop_configs();
+            v.extend(code_configs());
+            v
+        };
         Self {
             ws_url: var("HN_RELAY_WS").unwrap_or_else(|| DEFAULT_WS.into()),
             post_url: var("HN_RELAY_POST").unwrap_or_else(|| DEFAULT_POST.into()),
-            claude_json: var("HN_CLAUDE_JSON")
-                .map(PathBuf::from)
-                .or_else(|| dirs::home_dir().map(|h| h.join(".claude.json"))),
+            account_files,
             settings_file: crate::paths::data_dir().join("cloud.json"),
             creds: Arc::new(OsCreds {
                 service: var("HN_CRED_SERVICE").unwrap_or_else(|| "HumanNeeded".into()),
@@ -187,7 +283,7 @@ impl CloudConfig {
 pub enum LinkState {
     #[default]
     Off,
-    /// No Claude account found in `~/.claude.json` (signed out, or never used Claude Code).
+    /// No Claude account found (signed out of Claude Desktop and Claude Code).
     NoAccount,
     Connecting,
     /// Socket open, hello sent; waiting for the first probe to come back.
@@ -199,6 +295,15 @@ pub enum LinkState {
     Error,
 }
 
+/// One account's link.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct KeyStatus {
+    pub key: String,
+    pub state: LinkState,
+    pub error: Option<String>,
+    pub verified_at: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CloudStatus {
     pub enabled: bool,
@@ -207,8 +312,23 @@ pub struct CloudStatus {
     pub error: Option<String>,
     /// Last time (ms) a probe came back.
     pub verified_at: Option<u64>,
-    /// Non-secret route key (support).
+    /// Non-secret route key of the first account (support).
     pub key: Option<String>,
+    /// Every account's link (D-051), in `account_files` order.
+    pub keys: Vec<KeyStatus>,
+}
+
+/// Best first: the overall state is the best account's.
+fn rank(s: &LinkState) -> u8 {
+    match s {
+        LinkState::Working => 0,
+        LinkState::Connected => 1,
+        LinkState::Connecting => 2,
+        LinkState::Error => 3,
+        LinkState::KeyFull => 4,
+        LinkState::NoAccount => 5,
+        LinkState::Off => 6,
+    }
 }
 
 #[derive(Clone)]
@@ -275,16 +395,28 @@ impl Cloud {
         Ok(())
     }
 
-    /// Frees this install's slot on the key (best effort, own short connection).
+    /// Frees this install's slot on every key (best effort, own short connections).
     async fn unbind_self(&self) {
-        let (Some(id), Some(k)) = (self.cfg.creds.load(), self.key()) else {
+        let Some(id) = self.cfg.creds.load() else {
             return;
         };
+        let mut keys = self.keys();
+        for k in self.status().keys.into_iter().map(|s| s.key) {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+        for k in keys {
+            self.unbind(&k, &id).await;
+        }
+    }
+
+    async fn unbind(&self, k: &str, id: &Identity) {
         let r = tokio::time::timeout(Duration::from_secs(10), async {
             let (mut ws, _) = tokio_tungstenite::connect_async(&self.cfg.ws_url)
                 .await
                 .ok()?;
-            ws.send(WsMsg::text(hello(&k, &id))).await.ok()?;
+            ws.send(WsMsg::text(hello(k, id))).await.ok()?;
             tokio::time::sleep(Duration::from_millis(1500)).await;
             ws.send(WsMsg::text(json!({"t": "unbind", "i": id.i}).to_string()))
                 .await
@@ -304,53 +436,102 @@ impl Cloud {
         );
     }
 
-    fn key(&self) -> Option<String> {
-        let path = self.cfg.claude_json.as_ref()?;
-        account_uuid(path).map(|a| route_key(&a))
+    /// Route keys of every account found now.
+    fn keys(&self) -> Vec<String> {
+        accounts(&self.cfg.account_files)
+            .iter()
+            .map(|a| route_key(a))
+            .collect()
     }
 
+    /// Sets the overall state when no account link runs (off, no account, store error).
     fn set(&self, state: LinkState, error: Option<String>, on_change: &(dyn Fn() + Send + Sync)) {
         let mut s = self.status.lock().unwrap();
-        if s.state != state || s.error != error {
+        if s.state != state || s.error != error || !s.keys.is_empty() {
             s.state = state;
             s.error = error;
+            s.keys.clear();
+            s.key = None;
             drop(s);
             on_change();
         }
     }
 
+    /// Sets one account's state and recomputes the overall one.
+    fn set_key(
+        &self,
+        k: &str,
+        state: LinkState,
+        error: Option<String>,
+        on_change: &(dyn Fn() + Send + Sync),
+    ) {
+        let mut s = self.status.lock().unwrap();
+        let Some(ks) = s.keys.iter_mut().find(|x| x.key == k) else {
+            return;
+        };
+        if ks.state == state && ks.error == error {
+            return;
+        }
+        ks.state = state;
+        ks.error = error;
+        Self::summarize(&mut s);
+        drop(s);
+        on_change();
+    }
+
+    fn summarize(s: &mut CloudStatus) {
+        let best = s.keys.iter().min_by_key(|k| rank(&k.state)).cloned();
+        s.key = s.keys.first().map(|k| k.key.clone());
+        s.verified_at = s.keys.iter().filter_map(|k| k.verified_at).max();
+        match best {
+            Some(b) => {
+                s.state = b.state;
+                s.error = b.error;
+            }
+            None => {
+                s.state = LinkState::NoAccount;
+                s.error = None;
+            }
+        }
+    }
+
+    /// Keeps one link per account found; reads the account files again every [`RESCAN`].
     async fn manage(
         self,
         mut en_rx: watch::Receiver<bool>,
         tx: mpsc::Sender<Incoming>,
         on_change: Arc<dyn Fn() + Send + Sync>,
     ) {
-        let mut backoff = BACKOFF_MIN;
+        let mut links: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
+        fn stop_all(links: &mut HashMap<String, tokio::task::JoinHandle<()>>) {
+            links.drain().for_each(|(_, h)| h.abort());
+        }
         loop {
             if !*en_rx.borrow() {
+                stop_all(&mut links);
                 self.set(LinkState::Off, None, &*on_change);
                 if en_rx.changed().await.is_err() {
                     return;
                 }
-                backoff = BACKOFF_MIN;
                 continue;
             }
-            let Some(k) = self.key() else {
+            let keys = self.keys();
+            if keys.is_empty() {
+                stop_all(&mut links);
                 self.set(
                     LinkState::NoAccount,
                     Some("Sign in to Claude on this computer first (no account found).".into()),
                     &*on_change,
                 );
-                // Look again in a minute, or when the toggle changes.
-                let _ = tokio::time::timeout(Duration::from_secs(60), en_rx.changed()).await;
+                let _ = tokio::time::timeout(RESCAN, en_rx.changed()).await;
                 continue;
-            };
-            self.status.lock().unwrap().key = Some(k.clone());
+            }
             let id = match self.cfg.creds.load() {
                 Some(id) => id,
                 None => {
                     let id = Identity::new();
                     if let Err(e) = self.cfg.creds.save(&id) {
+                        stop_all(&mut links);
                         self.set(LinkState::Error, Some(e), &*on_change);
                         let _ = tokio::time::timeout(BACKOFF_MAX, en_rx.changed()).await;
                         continue;
@@ -358,28 +539,76 @@ impl Cloud {
                     id
                 }
             };
-            self.set(LinkState::Connecting, None, &*on_change);
-            let started = tokio::time::Instant::now();
-            let end = tokio::select! {
-                r = self.session(&k, &id, &tx, &*on_change) => r,
-                _ = en_rx.changed() => End::Toggled,
+            let changed = {
+                let mut s = self.status.lock().unwrap();
+                let before: Vec<String> = s.keys.iter().map(|k| k.key.clone()).collect();
+                let mut old: BTreeMap<String, KeyStatus> =
+                    s.keys.drain(..).map(|k| (k.key.clone(), k)).collect();
+                s.keys = keys
+                    .iter()
+                    .map(|k| {
+                        old.remove(k).unwrap_or_else(|| KeyStatus {
+                            key: k.clone(),
+                            state: LinkState::Connecting,
+                            ..Default::default()
+                        })
+                    })
+                    .collect();
+                Self::summarize(&mut s);
+                before != keys
             };
-            match end {
-                End::Toggled => continue,
+            links.retain(|k, h| {
+                let keep = keys.contains(k) && !h.is_finished();
+                if !keep {
+                    h.abort();
+                }
+                keep
+            });
+            for k in &keys {
+                if !links.contains_key(k) {
+                    log!("cloud: listening on key {}", &k[..8]);
+                    let me = self.clone();
+                    let (k2, id, tx, oc) = (k.clone(), id.clone(), tx.clone(), on_change.clone());
+                    links.insert(
+                        k.clone(),
+                        tokio::spawn(async move { me.key_loop(k2, id, tx, oc).await }),
+                    );
+                }
+            }
+            if changed {
+                on_change();
+            }
+            let _ = tokio::time::timeout(RESCAN, en_rx.changed()).await;
+        }
+    }
+
+    /// One account's link: connect, run, back off, again (until aborted).
+    async fn key_loop(
+        self,
+        k: String,
+        id: Identity,
+        tx: mpsc::Sender<Incoming>,
+        on_change: Arc<dyn Fn() + Send + Sync>,
+    ) {
+        let mut backoff = BACKOFF_MIN;
+        loop {
+            let started = tokio::time::Instant::now();
+            match self.session(&k, &id, &tx, &*on_change).await {
                 End::KeyFull => {
-                    self.set(
+                    self.set_key(
+                        &k,
                         LinkState::KeyFull,
                         Some("Three other computers already use the cloud link for this Claude account. Turn it off on one of them, or wait: a computer that hasn't connected for 30 days frees its place.".into()),
                         &*on_change,
                     );
                     // Retry rarely: a slot may free up.
-                    let _ =
-                        tokio::time::timeout(Duration::from_secs(30 * 60), en_rx.changed()).await;
+                    tokio::time::sleep(Duration::from_secs(30 * 60)).await;
                     continue;
                 }
                 End::Refused(e) => {
                     log!("cloud: refused: {e}");
-                    self.set(
+                    self.set_key(
+                        &k,
                         LinkState::Error,
                         Some(format!("The relay refused this computer ({e}). Turn the cloud link off and on again to reset it.")),
                         &*on_change,
@@ -387,7 +616,8 @@ impl Cloud {
                 }
                 End::Lost(e) => {
                     log!("cloud: connection lost: {e}");
-                    self.set(
+                    self.set_key(
+                        &k,
                         LinkState::Connecting,
                         Some("Reconnecting…".into()),
                         &*on_change,
@@ -397,7 +627,7 @@ impl Cloud {
             if started.elapsed() > STABLE {
                 backoff = BACKOFF_MIN;
             }
-            let _ = tokio::time::timeout(backoff, en_rx.changed()).await;
+            tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(BACKOFF_MAX);
         }
     }
@@ -424,7 +654,7 @@ impl Cloud {
             return End::Lost(e.to_string());
         }
         log!("cloud: connected");
-        self.set(LinkState::Connected, None, on_change);
+        self.set_key(k, LinkState::Connected, None, on_change);
         let probe = probe_h(k);
         let mut ping =
             tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
@@ -446,12 +676,20 @@ impl Cloud {
                     match parse(&text) {
                         Some(Relay::State { s, h }) if h == probe => {
                             last_probe_seen = tokio::time::Instant::now();
-                            let first = self.status().state != LinkState::Working;
-                            self.status.lock().unwrap().verified_at = Some(hn_sim::now_ms());
+                            let first = {
+                                let mut st = self.status.lock().unwrap();
+                                let mut first = false;
+                                if let Some(x) = st.keys.iter_mut().find(|x| x.key == k) {
+                                    first = x.state != LinkState::Working;
+                                    x.verified_at = Some(hn_sim::now_ms());
+                                }
+                                Self::summarize(&mut st);
+                                first
+                            };
                             if first {
-                                log!("cloud: probe came back, link works");
+                                log!("cloud: probe came back on key {}, link works", &k[..8]);
                             }
-                            self.set(LinkState::Working, None, on_change);
+                            self.set_key(k, LinkState::Working, None, on_change);
                             let _ = s;
                         }
                         Some(Relay::State { s, h }) => {
@@ -479,7 +717,7 @@ impl Cloud {
                 _ = probe_tick.tick() => {
                     // Two probes in a row didn't come back: the path is broken; say so.
                     if last_probe_seen.elapsed() > PROBE_EVERY * 2 + Duration::from_secs(30) {
-                        self.set(LinkState::Connected, Some("Connected, but test messages aren't coming back.".into()), on_change);
+                        self.set_key(k, LinkState::Connected, Some("Connected, but test messages aren't coming back.".into()), on_change);
                     }
                     let url = format!("{}/v1/h/{k}", self.cfg.post_url.trim_end_matches('/'));
                     let body = json!({"v": 1, "s": "idle", "h": probe, "ts": hn_sim::now_ms(), "hb": true});
@@ -498,7 +736,6 @@ impl Cloud {
 }
 
 enum End {
-    Toggled,
     KeyFull,
     Refused(String),
     Lost(String),
@@ -567,6 +804,39 @@ mod tests {
         assert_eq!(account_uuid(&p), None);
         std::fs::write(&p, "{}").unwrap();
         assert_eq!(account_uuid(&p), None);
+    }
+
+    #[test]
+    fn reads_every_account_desktop_first() {
+        let d = tempfile::tempdir().unwrap();
+        let cj = d.path().join(".claude.json");
+        std::fs::write(&cj, r#"{"oauthAccount":{"accountUuid":"bfe1829d-0001"}}"#).unwrap();
+        // PC2: the Store build keeps its config under a per-package folder.
+        let msix = d.path().join("Claude-Data/claude_pzs8sxrjxfjjc");
+        std::fs::create_dir_all(&msix).unwrap();
+        std::fs::write(
+            msix.join("config.json"),
+            r#"{"lastKnownAccountUuid":"81c9fbe3-0002","other":1}"#,
+        )
+        .unwrap();
+        // A second Desktop with the same account as ~/.claude.json: listed once.
+        let reg = d.path().join("Claude");
+        std::fs::create_dir_all(&reg).unwrap();
+        std::fs::write(
+            reg.join("config.json"),
+            r#"{"lastKnownAccountUuid":"bfe1829d-0001"}"#,
+        )
+        .unwrap();
+        let files = vec![
+            d.path().join("Claude/config.json"),
+            d.path().join("Claude-Data/*/config.json"),
+            d.path().join("missing/*/config.json"),
+            cj,
+        ];
+        assert_eq!(accounts(&files), ["bfe1829d-0001", "81c9fbe3-0002"]);
+        let only_msix = vec![d.path().join("Claude-Data/claude_*/config.json")];
+        assert_eq!(accounts(&only_msix), ["81c9fbe3-0002"]);
+        assert!(accounts(&[d.path().join("Claude-Data/other_*/config.json")]).is_empty());
     }
 
     #[test]
