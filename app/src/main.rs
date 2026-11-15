@@ -8,8 +8,8 @@ mod hn_install;
 mod tray;
 mod updater;
 
-use hn_engine::{integrations, log, paths, Config, Engine};
-use serde_json::{json, Value};
+use hn_engine::{agents, log, paths, Config, Engine};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -85,6 +85,11 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
 }
 
 #[tauri::command]
+async fn cloud_set(engine: State<'_, Engine>, on: bool) -> R<()> {
+    engine.cloud_set(on).await
+}
+
+#[tauri::command]
 async fn clear_sessions(engine: State<'_, Engine>) -> R<()> {
     engine.request("clear", &[]).await;
     Ok(())
@@ -106,27 +111,10 @@ async fn fw_update(app: AppHandle, engine: State<'_, Engine>) -> R<String> {
         .await
 }
 
+/// D-054: the user installs the plugins; this opens the per-agent guides (fixed URL).
 #[tauri::command]
-async fn integrations_list() -> R<Value> {
-    let list =
-        tauri::async_runtime::spawn_blocking(|| integrations::list(&integrations::Env::current()))
-            .await
-            .map_err(|e| e.to_string())?;
-    Ok(json!({ "agents": list }))
-}
-
-#[tauri::command]
-async fn integration_install(id: String, remove: bool) -> R<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let env = integrations::Env::current();
-        if remove {
-            integrations::uninstall(&id, &env)
-        } else {
-            integrations::install(&id, &env)
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+fn open_setup_guide() -> R<()> {
+    open_path(std::path::Path::new(agents::SETUP_URL))
 }
 
 #[tauri::command]
@@ -189,10 +177,10 @@ fn main() {
             puck_set,
             puck_action,
             clear_sessions,
+            cloud_set,
             fw_check,
             fw_update,
-            integrations_list,
-            integration_install,
+            open_setup_guide,
             autostart_get,
             autostart_set,
             open_log,

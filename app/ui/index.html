@@ -94,7 +94,7 @@
 
   <section class="card">
     <div class="card-head"><h2 class="grow">Agents</h2></div>
-    <p class="card-desc">HumanNeeded needs a small integration in each agent app.</p>
+    <p class="card-desc">Install the HumanNeeded plugin in each agent app you use. <a href="#" id="setup-guide">How to set it up</a></p>
     <ul id="agents" class="list"></ul>
   </section>
 
@@ -114,6 +114,15 @@
       <button id="restart" type="button">Restart puck</button>
       <button id="reset" type="button">Reset settings</button>
     </div>
+  </section>
+
+  <section class="card" id="cloud-card">
+    <div class="card-head"><h2 class="grow">Cloud chats</h2></div>
+    <p class="card-desc">Cowork and Claude on the web run in the cloud, so they reach your puck through the HumanNeeded relay. Off until you turn it on. Only light states pass through, never your chats.</p>
+    <div class="row">
+      <label class="grow"><input type="checkbox" id="cloud-on"> Light the puck for cloud chats</label>
+    </div>
+    <p class="card-desc" id="cloud-status" style="margin-top:8px"></p>
   </section>
 
   <section class="card">

@@ -117,7 +117,16 @@ function ago(ms) {
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   return `${Math.round(s / 3600)} h ago`;
 }
-const AGENT_NAMES = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };
+const AGENT_NAMES = { claude: 'Claude', 'claude-cloud': 'Claude (cloud)', codex: 'Codex', cursor: 'Cursor' };
+const CLOUD_TEXT = {
+  off: '',
+  no_account: '',
+  connecting: 'Connecting to the relay…',
+  connected: 'Connected; checking that messages come through…',
+  working: 'Working: cloud chats will light your puck.',
+  key_full: '',
+  error: '',
+};
 function renderSessions(sessions) {
   const shown = sessions.filter((s) => s.state === 'working' || s.state === 'needs' || Date.now() - s.last_seen < 3600e3)
     .filter((s) => s.state !== 'ended');
@@ -144,6 +153,12 @@ async function refresh() {
   $('http-note').textContent = h.error
     ? `Agents can't reach HumanNeeded: ${h.error}. Close that program or restart your computer; HumanNeeded keeps retrying.`
     : '';
+  const c = st.cloud;
+  $('cloud-card').classList.toggle('hidden', !c);
+  if (c) {
+    if (document.activeElement !== $('cloud-on')) $('cloud-on').checked = !!c.enabled;
+    $('cloud-status').textContent = c.enabled ? (c.error || CLOUD_TEXT[c.state] || '') : '';
+  }
   // D-049: with a proxy set, Claude sends its hooks to the proxy unless NO_PROXY has 127.0.0.1.
   const px = st.proxy;
   $('proxy-note').classList.toggle('hidden', !px);
@@ -181,31 +196,22 @@ async function refresh() {
   $('light').style.background = COLORS[base] || 'transparent';
   $('light').style.boxShadow = COLORS[base] ? `0 0 18px ${COLORS[base]}` : '';
   renderSessions(st.sessions || []);
+  renderAgents(st.agents || []);
 }
 
-async function refreshAgents() {
-  try {
-    const r = await invoke('integrations_list');
-    $('agents').innerHTML = r.agents.map((a) => {
-      let right;
-      if (a.installed) right = '<span class="ok">Installed</span>';
-      else if (!a.detected) right = '<span class="muted">Not found on this computer</span>';
-      else if (a.can_install) right = `<button type="button" class="primary" data-install="${esc(a.id)}">Install</button>`;
-      else right = `<span class="muted">${esc(a.manual)}</span>`;
-      const manual = a.detected && !a.installed && a.can_install
-        ? `<button class="tip" type="button" aria-label="Install by hand" data-tip="${esc(a.manual)}">?</button>` : '';
-      return `<li><span class="grow">${esc(a.name)}</span>${manual}${right}</li>`;
-    }).join('');
-  } catch (e) { showError(e); }
+// D-054: read-only. "Connected" = an event from that agent arrived in the last 7 days.
+function renderAgents(list) {
+  $('agents').innerHTML = list.map((a) => {
+    const right = a.state === 'connected'
+      ? '<span class="ok">Connected</span>'
+      : '<span class="muted">Not set up</span>';
+    return `<li><span class="grow">${esc(a.name)}</span>${right}</li>`;
+  }).join('');
 }
-$('agents').addEventListener('click', async (ev) => {
-  const id = ev.target.dataset && ev.target.dataset.install;
-  if (!id) return;
-  ev.target.disabled = true;
-  ev.target.textContent = 'Installing…';
-  try { showError(''); alert(await invoke('integration_install', { id, remove: false })); } catch (e) { showError(e); }
-  refreshAgents();
-});
+$('setup-guide').onclick = (ev) => {
+  ev.preventDefault();
+  invoke('open_setup_guide').catch(showError);
+};
 
 // ---- buttons ----
 async function act(action, arg) {
@@ -223,6 +229,11 @@ $('reset').onclick = async () => {
 };
 $('clear').onclick = async () => { await invoke('clear_sessions'); refresh(); };
 $('log').onclick = () => invoke('open_log').catch(showError);
+$('cloud-on').onchange = (ev) => {
+  const on = ev.target.checked;
+  ev.target.disabled = true;
+  invoke('cloud_set', { on }).catch(showError).finally(() => { ev.target.disabled = false; refresh(); });
+};
 $('autostart').onchange = (ev) => invoke('autostart_set', { on: ev.target.checked }).catch(showError);
 $('auto-update').onchange = (ev) => invoke('update_auto', { on: ev.target.checked }).catch(showError);
 $('app-update-check').onclick = () => invoke('update_check').then(refresh).catch(showError);
@@ -255,5 +266,4 @@ listen('changed', () => refresh());
 
 invoke('autostart_get').then((on) => { $('autostart').checked = on; });
 refresh();
-refreshAgents();
 setInterval(refresh, 5000);

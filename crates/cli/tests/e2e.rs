@@ -51,6 +51,8 @@ async fn rig_full(
         latest_url: latest.unwrap_or_else(|| "file:///nowhere".into()),
         uf2_drive: drive,
         http_port,
+        cloud: None,
+        agents_file: None,
     })
     .await
     .unwrap();
@@ -320,6 +322,8 @@ async fn second_instance_is_refused() {
         latest_url: String::new(),
         uf2_drive: None,
         http_port: None,
+        cloud: None,
+        agents_file: None,
     })
     .await;
     assert!(again.is_err());
@@ -547,6 +551,25 @@ async fn http_events_drive_the_puck() {
     );
     r.expect_shown("done", Duration::from_secs(2)).await;
     assert_eq!(sessions(&r).await, vec!["h1"]);
+    // D-054: Claude now shows as connected, the others as not set up.
+    let st = r.engine.status().await;
+    let states: Vec<_> = st["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            format!(
+                "{}={}",
+                a["id"].as_str().unwrap(),
+                a["state"].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert_eq!(
+        states,
+        ["claude=connected", "codex=not_set_up", "cursor=not_set_up"]
+    );
+    assert_eq!(st["setup_url"], "https://human-needed.com/start/");
     let health = format!("GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
     assert_eq!(
         tokio::task::spawn_blocking(move || http(port, &health))
