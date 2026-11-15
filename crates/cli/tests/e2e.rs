@@ -51,6 +51,7 @@ async fn rig_full(
         latest_url: latest.unwrap_or_else(|| "file:///nowhere".into()),
         uf2_drive: drive,
         http_port,
+        cloud: None,
     })
     .await
     .unwrap();
@@ -320,6 +321,7 @@ async fn second_instance_is_refused() {
         latest_url: String::new(),
         uf2_drive: None,
         http_port: None,
+        cloud: None,
     })
     .await;
     assert!(again.is_err());

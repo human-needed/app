@@ -1,6 +1,7 @@
 //! HumanNeeded app engine. Everything the tray app does, without the UI, so it can run headless
 //! (`hnd`) in CI and integration tests.
 //!
+//! - [`cloud`]: cloud link to the relay, so cloud chats light the puck (relay-api §3).
 //! - [`http`]: receives agent hook events on 127.0.0.1 (D-047, the main path).
 //! - [`ipc`]: named pipe / Unix socket for the `hn` dev tool (app-events 1.0, retired for agents).
 //! - [`link`]: the only owner of the puck's serial port; `hn-usb/2` client with reconnect.
@@ -11,6 +12,7 @@
 //! - [`firmware`]: `latest.json` → SHA-256 → `BOOTSEL` → copy .uf2 to RPI-RP2.
 //! - [`integrations`]: detect / install the HumanNeeded integration per agent app.
 
+pub mod cloud;
 pub mod engine;
 pub mod firmware;
 pub mod http;

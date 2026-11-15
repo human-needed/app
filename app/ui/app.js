@@ -117,7 +117,16 @@ function ago(ms) {
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   return `${Math.round(s / 3600)} h ago`;
 }
-const AGENT_NAMES = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };
+const AGENT_NAMES = { claude: 'Claude', 'claude-cloud': 'Claude (cloud)', codex: 'Codex', cursor: 'Cursor' };
+const CLOUD_TEXT = {
+  off: '',
+  no_account: '',
+  connecting: 'Connecting to the relay…',
+  connected: 'Connected; checking that messages come through…',
+  working: 'Working: cloud chats will light your puck.',
+  key_full: '',
+  error: '',
+};
 function renderSessions(sessions) {
   const shown = sessions.filter((s) => s.state === 'working' || s.state === 'needs' || Date.now() - s.last_seen < 3600e3)
     .filter((s) => s.state !== 'ended');
@@ -137,6 +146,12 @@ async function refresh() {
   $('http-note').textContent = h.error
     ? `Agents can't reach HumanNeeded: ${h.error}. Close that program or restart your computer; HumanNeeded keeps retrying.`
     : '';
+  const c = st.cloud;
+  $('cloud-card').classList.toggle('hidden', !c);
+  if (c) {
+    if (document.activeElement !== $('cloud-on')) $('cloud-on').checked = !!c.enabled;
+    $('cloud-status').textContent = c.enabled ? (c.error || CLOUD_TEXT[c.state] || '') : '';
+  }
   // D-049: with a proxy set, Claude sends its hooks to the proxy unless NO_PROXY has 127.0.0.1.
   const px = st.proxy;
   $('proxy-note').classList.toggle('hidden', !px);
@@ -216,6 +231,11 @@ $('reset').onclick = async () => {
 };
 $('clear').onclick = async () => { await invoke('clear_sessions'); refresh(); };
 $('log').onclick = () => invoke('open_log').catch(showError);
+$('cloud-on').onchange = (ev) => {
+  const on = ev.target.checked;
+  ev.target.disabled = true;
+  invoke('cloud_set', { on }).catch(showError).finally(() => { ev.target.disabled = false; refresh(); });
+};
 $('autostart').onchange = (ev) => invoke('autostart_set', { on: ev.target.checked }).catch(showError);
 
 $('fw-check').onclick = async () => {

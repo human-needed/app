@@ -25,6 +25,8 @@ pub struct Config {
     pub uf2_drive: Option<PathBuf>,
     /// Local HTTP receiver port (D-047); `None` = off.
     pub http_port: Option<u16>,
+    /// Cloud link (relay-api §3); `None` = not available (tests).
+    pub cloud: Option<crate::cloud::CloudConfig>,
 }
 
 impl Config {
@@ -50,6 +52,7 @@ impl Config {
                 Some(p) => Some(p),
                 None => Some(crate::http::DEFAULT_PORT),
             },
+            cloud: Some(crate::cloud::CloudConfig::from_env()),
         }
     }
 }
@@ -77,6 +80,7 @@ pub struct Engine {
     changes: Arc<watch::Sender<u64>>,
     link_events: Arc<tokio::sync::broadcast::Sender<LinkEvent>>,
     http: Arc<Mutex<crate::http::HttpStatus>>,
+    cloud: Option<crate::cloud::Cloud>,
 }
 
 fn now_ms() -> u64 {
@@ -94,6 +98,11 @@ impl Engine {
         let link = Link::start(config.puck.clone(), ev_tx);
         let (changes, _) = watch::channel(0);
         let (bcast, _) = tokio::sync::broadcast::channel(32);
+        let changes = Arc::new(changes);
+        let cloud = config.cloud.clone().map(|cfg| {
+            let changes = changes.clone();
+            crate::cloud::Cloud::start(cfg, in_tx.clone(), move || changes.send_modify(|n| *n += 1))
+        });
         let engine = Self {
             config,
             link,
@@ -104,9 +113,10 @@ impl Engine {
                 last_sent: Instant::now(),
                 updating: None,
             })),
-            changes: Arc::new(changes),
+            changes,
             link_events: Arc::new(bcast),
             http: Arc::new(Mutex::new(Default::default())),
+            cloud,
         };
         if let Some(port) = engine.config.http_port {
             let changes = engine.changes.clone();
@@ -289,6 +299,7 @@ impl Engine {
             "http": self.http.lock().unwrap().clone(),
             // D-049: Claude would send its hooks to a proxy.
             "proxy": crate::proxy::current(self.config.claude_dir.as_deref()),
+            "cloud": self.cloud.as_ref().map(|c| c.status()),
             "puck": match puck {
                 Some(p) => json!({
                     "connected": true, "port": p.port, "fw": p.hello.fw, "board": p.hello.board,
@@ -300,6 +311,15 @@ impl Engine {
             "sessions": sessions,
             "snapshot": snapshot.iter().map(|(id, st)| json!({"id": id, "state": st.as_str()})).collect::<Vec<_>>(),
         })
+    }
+
+    /// Turns the cloud link on or off (relay-api §3, D-030: opt-in).
+    pub async fn cloud_set(&self, on: bool) -> Result<(), String> {
+        let c = self.cloud.as_ref().ok_or("cloud link not available")?;
+        c.set_enabled(on).await?;
+        log!("cloud: link {}", if on { "on" } else { "off" });
+        self.changed();
+        Ok(())
     }
 
     pub(crate) fn set_updating(&self, what: Option<String>) {

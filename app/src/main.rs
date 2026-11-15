@@ -64,6 +64,11 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
 }
 
 #[tauri::command]
+async fn cloud_set(engine: State<'_, Engine>, on: bool) -> R<()> {
+    engine.cloud_set(on).await
+}
+
+#[tauri::command]
 async fn clear_sessions(engine: State<'_, Engine>) -> R<()> {
     engine.request("clear", &[]).await;
     Ok(())
@@ -167,6 +172,7 @@ fn main() {
             puck_set,
             puck_action,
             clear_sessions,
+            cloud_set,
             fw_check,
             fw_update,
             integrations_list,
