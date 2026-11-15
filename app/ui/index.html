@@ -68,6 +68,7 @@
 <main>
   <h1>HumanNeeded</h1>
   <p class="sub">Your puck lights up when an agent is working, done, or needs you.</p>
+  <div id="app-update" class="note hidden row"><span class="grow" id="app-update-text"></span><button id="app-update-go" type="button" class="primary">Restart to update</button></div>
 
   <section class="card">
     <div class="row">
@@ -121,6 +122,10 @@
       <label class="grow"><input type="checkbox" id="autostart"> Start HumanNeeded when I sign in</label>
       <button id="clear" type="button">Clear the light</button>
       <button id="log" type="button">Open log</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="grow"><input type="checkbox" id="auto-update"> Check for app updates automatically</label>
+      <button id="app-update-check" type="button">Check for updates</button>
     </div>
     <p class="card-desc" id="app-version" style="margin-top:8px"></p>
     <details class="card-desc"><summary>Details</summary><p id="http-info" class="mono"></p></details>

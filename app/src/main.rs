@@ -6,6 +6,7 @@
 
 mod hn_install;
 mod tray;
+mod updater;
 
 use hn_engine::{integrations, log, paths, Config, Engine};
 use serde_json::{json, Value};
@@ -20,8 +21,28 @@ fn json_reply(r: R<String>) -> R<Value> {
 }
 
 #[tauri::command]
-async fn status(engine: State<'_, Engine>) -> R<Value> {
-    Ok(engine.status().await)
+async fn status(
+    engine: State<'_, Engine>,
+    updates: State<'_, std::sync::Arc<updater::Updates>>,
+) -> R<Value> {
+    let mut st = engine.status().await;
+    st["update"] = serde_json::to_value(updates.status()).unwrap_or_default();
+    Ok(st)
+}
+
+#[tauri::command]
+fn update_check(updates: State<'_, std::sync::Arc<updater::Updates>>) {
+    updates.check_now();
+}
+
+#[tauri::command]
+fn update_auto(updates: State<'_, std::sync::Arc<updater::Updates>>, on: bool) -> R<()> {
+    updates.set_auto(on)
+}
+
+#[tauri::command]
+async fn update_install(app: AppHandle) -> R<()> {
+    updater::install(&app).await
 }
 
 #[tauri::command]
@@ -160,6 +181,7 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--background"]),
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status,
             puck_schema,
@@ -173,7 +195,10 @@ fn main() {
             integration_install,
             autostart_get,
             autostart_set,
-            open_log
+            open_log,
+            update_check,
+            update_auto,
+            update_install
         ])
         .setup(move |app| {
             let engine =
@@ -201,6 +226,7 @@ fn main() {
                 let _ = std::fs::write(paths::data_dir().join("seen"), "1");
                 let _ = app.autolaunch().enable(); // starts at login by default (D-027)
             }
+            updater::start(app.handle());
             tray::build(app.handle(), engine.clone())?;
             let background = std::env::args().any(|a| a == "--background");
             if !background {
