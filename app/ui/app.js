@@ -174,32 +174,22 @@ async function refresh() {
   $('light').style.background = COLORS[base] || 'transparent';
   $('light').style.boxShadow = COLORS[base] ? `0 0 18px ${COLORS[base]}` : '';
   renderSessions(st.sessions || []);
+  renderAgents(st.agents || []);
 }
 
-async function refreshAgents() {
-  try {
-    const r = await invoke('integrations_list');
-    $('agents').innerHTML = r.agents.map((a) => {
-      let right;
-      if (a.installed) right = '<span class="ok">Installed</span>';
-      else if (a.finish) right = `<span class="muted">${esc(a.finish)}</span>`;
-      else if (!a.detected) right = '<span class="muted">Not found on this computer</span>';
-      else if (a.can_install) right = `<button type="button" class="primary" data-install="${esc(a.id)}">Install</button>`;
-      else right = `<span class="muted">${esc(a.manual)}</span>`;
-      const manual = a.detected && !a.installed && a.can_install
-        ? `<button class="tip" type="button" aria-label="Install by hand" data-tip="${esc(a.manual)}">?</button>` : '';
-      return `<li><span class="grow">${esc(a.name)}</span>${manual}${right}</li>`;
-    }).join('');
-  } catch (e) { showError(e); }
+// D-054: read-only. "Connected" = an event from that agent arrived in the last 7 days.
+function renderAgents(list) {
+  $('agents').innerHTML = list.map((a) => {
+    const right = a.state === 'connected'
+      ? '<span class="ok">Connected</span>'
+      : '<span class="muted">Not set up</span>';
+    return `<li><span class="grow">${esc(a.name)}</span>${right}</li>`;
+  }).join('');
 }
-$('agents').addEventListener('click', async (ev) => {
-  const id = ev.target.dataset && ev.target.dataset.install;
-  if (!id) return;
-  ev.target.disabled = true;
-  ev.target.textContent = 'Installing…';
-  try { showError(''); alert(await invoke('integration_install', { id, remove: false })); } catch (e) { showError(e); }
-  refreshAgents();
-});
+$('setup-guide').onclick = (ev) => {
+  ev.preventDefault();
+  invoke('open_setup_guide').catch(showError);
+};
 
 // ---- buttons ----
 async function act(action, arg) {
@@ -246,5 +236,4 @@ listen('changed', () => refresh());
 
 invoke('autostart_get').then((on) => { $('autostart').checked = on; });
 refresh();
-refreshAgents();
 setInterval(refresh, 5000);

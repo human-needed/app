@@ -159,6 +159,7 @@ async fn engine_on_real_puck() {
         latest_url: String::new(),
         uf2_drive: None,
         http_port: None,
+        agents_file: None,
     })
     .await
     .unwrap();
