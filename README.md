@@ -8,7 +8,7 @@ under a lease, so the light always clears itself if anything goes wrong.
 |---|---|
 | `crates/core` | `hn-events/1` (agent → app), host side of `hn-usb/2`, session table + liveness rules. No I/O |
 | `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, integration manifests, proxy check. `hnd` = headless app |
-| `crates/cli` | `hn`: dev/support tool over a named pipe (app-events 1.0; retired for agents, not shipped) |
+| `crates/cli` | `hn`: **dev and test tool only** (talks to the app over a named pipe / Unix socket; used by the e2e tests). Agents no longer use it (app-events 2.0) and it isn't shipped |
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
 | `app` | Tauri tray app + settings window (form built from the puck's `SCHEMA`) |
 

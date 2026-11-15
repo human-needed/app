@@ -14,7 +14,8 @@ fn endpoint(name: &str) -> PathBuf {
     if cfg!(windows) {
         PathBuf::from(format!(r"\\.\pipe\{unique}"))
     } else {
-        std::env::temp_dir().join(unique).join("hn.sock")
+        // Short path: Unix socket paths max out at 104 bytes on macOS ($TMPDIR is long there).
+        PathBuf::from("/tmp").join(unique).join("hn.sock")
     }
 }
 
@@ -767,6 +768,7 @@ async fn http_claude_events_from_cursor_are_dropped() {
     assert_eq!(sessions(&r).await, vec!["cur2"]);
 }
 
+#[cfg(windows)]
 fn session_field(st: &serde_json::Value, session: &str, field: &str) -> serde_json::Value {
     st["sessions"]
         .as_array()
