@@ -837,3 +837,22 @@ async fn http_agent_process_liveness() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
+
+/// A hook body with a UTF-8 BOM (Windows re-encoding) still yields its session.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_body_with_bom() {
+    let (r, port) = http_rig("httpbom").await;
+    let code = tokio::task::spawn_blocking(move || {
+        post(
+            port,
+            "/v1/event/codex/working",
+            "\u{feff}{\"session_id\":\"bom1\"}",
+            "",
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(code, 204);
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    assert_eq!(sessions(&r).await, vec!["bom1"]);
+}

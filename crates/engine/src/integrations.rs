@@ -331,16 +331,21 @@ fn installed(a: &Value, env: &Env) -> bool {
         return v.and_then(|v| v.pointer(ptr).cloned()) == Some(spec["equals"].clone());
     }
     if let Some(file) = spec["hooks_json"].as_str() {
-        // Only current hooks count as installed: 1.0 `hn` hooks need a reinstall.
-        let Some(marker) = spec["marker"].as_str().or(a["remove"]["marker"].as_str()) else {
+        // Installed = every hook of the current template is there, exactly. Older hooks (1.0
+        // `hn`, or the `$input | curl.exe` form that re-encoded JSON on Windows) need a
+        // reinstall, which replaces them.
+        let Ok(template) = template_for(&a["install"]["from"]) else {
             return false;
         };
-        let v = env.expand(file).and_then(|p| read_json(&p));
-        return v.is_some_and(|v| {
-            commands(&v)
-                .iter()
-                .any(|h| h["command"].as_str().is_some_and(|c| c.contains(marker)))
-        });
+        let Some(v) = env.expand(file).and_then(|p| read_json(&p)) else {
+            return false;
+        };
+        let have = commands(&v);
+        let same = |x: &Value, y: &Value| {
+            x["command"] == y["command"] && x["commandWindows"] == y["commandWindows"]
+        };
+        let want = commands(&template);
+        return !want.is_empty() && want.iter().all(|t| have.iter().any(|h| same(t, h)));
     }
     false
 }
@@ -584,9 +589,37 @@ mod tests {
         }
         let v = read_json(&d.path().join(".cursor/hooks.json")).unwrap();
         let c = v["hooks"]["stop"][0]["command"].as_str().unwrap();
-        // Cursor runs hooks in PowerShell on Windows: the PowerShell form there.
-        assert_eq!(c.starts_with("$input | curl.exe"), cfg!(windows), "{c}");
+        // Windows: curl.exe reads stdin itself (no `$input |`, which re-encoded the JSON).
+        assert_eq!(c.starts_with("curl.exe "), cfg!(windows), "{c}");
+        assert!(!c.contains("$input"), "{c}");
         assert!(c.contains("/v1/event/cursor/done"), "{c}");
+    }
+
+    #[test]
+    fn upgrade_replaces_input_pipe_hooks() {
+        // plugins 1279db4 piped `$input | curl.exe`: PowerShell re-encoded the JSON (BOM, CRLF).
+        let d = tempfile::tempdir().unwrap();
+        let cdir = d.path().join(".cursor");
+        std::fs::create_dir(&cdir).unwrap();
+        std::fs::write(
+            cdir.join("hooks.json"),
+            r#"{"version":1,"hooks":{"stop":[{"command":"$input | curl.exe -s --data-binary '@-' http://127.0.0.1:24816/v1/event/cursor/done; exit 0"}]}}"#,
+        )
+        .unwrap();
+        let e = env(d.path());
+        let is_installed = || {
+            list(&e)
+                .into_iter()
+                .find(|i| i.id == "cursor")
+                .unwrap()
+                .installed
+        };
+        assert!(!is_installed(), "old form needs a reinstall");
+        install("cursor", &e).unwrap();
+        assert!(is_installed());
+        let text = std::fs::read_to_string(cdir.join("hooks.json")).unwrap();
+        assert!(!text.contains("$input"), "{text}");
+        assert_eq!(text.matches("/v1/event/cursor/done").count(), 1, "{text}");
     }
 
     #[test]

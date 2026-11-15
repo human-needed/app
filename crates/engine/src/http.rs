@@ -356,6 +356,14 @@ fn set_args(body: &[u8]) -> Option<Vec<String>> {
     (token_ok(&key) && token_ok(&value)).then(|| vec![key, value])
 }
 
+/// Drops a leading UTF-8 BOM (Windows tools add one when they re-encode a hook's JSON).
+fn strip_bom(mut body: Vec<u8>) -> Vec<u8> {
+    if body.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        body.drain(..3);
+    }
+    body
+}
+
 fn is_json(req: &Request) -> bool {
     req.header("content-type").is_some_and(|v| {
         let mime = v.split(';').next().unwrap_or("").trim();
@@ -393,7 +401,7 @@ async fn handle(mut s: TcpStream, port: u16, peer_port: u16, tx: mpsc::Sender<In
             return;
         };
         let body = match read_body(&mut s, &req).await {
-            Ok(b) => b,
+            Ok(b) => strip_bom(b),
             Err(code) => {
                 reply(&mut s, code, "").await;
                 return;
@@ -446,7 +454,7 @@ async fn handle(mut s: TcpStream, port: u16, peer_port: u16, tx: mpsc::Sender<In
         ("POST", ["v1", "clear"]) => ask(&tx, "clear", vec![]).await,
         ("POST", ["v1", "set"]) => {
             let body = match read_body(&mut s, &req).await {
-                Ok(b) => b,
+                Ok(b) => strip_bom(b),
                 Err(code) => {
                     reply(&mut s, code, "").await;
                     return;
@@ -475,6 +483,16 @@ async fn handle(mut s: TcpStream, port: u16, peer_port: u16, tx: mpsc::Sender<In
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bom_is_stripped_before_parsing() {
+        let body = b"\xEF\xBB\xBF{\"session_id\":\"s9\",\"cursor_version\":\"1\"}".to_vec();
+        let body = strip_bom(body);
+        assert_eq!(session_of(&body), "s9");
+        assert!(sent_by_cursor(&body));
+        assert_eq!(strip_bom(b"{}".to_vec()), b"{}");
+        assert_eq!(strip_bom(vec![0xEF, 0xBB]), vec![0xEF, 0xBB]);
+    }
+
     use super::*;
 
     #[test]
