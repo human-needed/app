@@ -132,6 +132,7 @@ async fn rig(name: &str, ws_url: String, post_url: String) -> Rig {
         latest_url: String::new(),
         uf2_drive: None,
         http_port: None,
+        agents_file: None,
         cloud: Some(CloudConfig {
             ws_url,
             post_url,

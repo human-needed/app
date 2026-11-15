@@ -160,6 +160,7 @@ async fn engine_on_real_puck() {
         uf2_drive: None,
         http_port: None,
         cloud: None,
+        agents_file: None,
     })
     .await
     .unwrap();

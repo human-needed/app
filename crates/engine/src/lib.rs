@@ -10,13 +10,13 @@
 //! - [`proxy`]: D-049 warning when Claude would send its hooks to a proxy.
 //! - [`engine`]: the loop tying them together (session table → SNAP every 10 s / on change).
 //! - [`firmware`]: `latest.json` → SHA-256 → `BOOTSEL` → copy .uf2 to RPI-RP2.
-//! - [`integrations`]: detect / install the HumanNeeded integration per agent app.
+//! - [`agents`]: read-only per-agent status (D-054: the user installs the plugins).
 
+pub mod agents;
 pub mod cloud;
 pub mod engine;
 pub mod firmware;
 pub mod http;
-pub mod integrations;
 pub mod ipc;
 pub mod link;
 pub mod liveness;
