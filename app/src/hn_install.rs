@@ -1,9 +1,8 @@
-//! The app's own `hn` (app-events §1, §6b, D-046): a copy in `<data>/bin`, which hooks the app
-//! writes call by absolute path. Putting it on PATH is only a convenience for people and skills
-//! (D-046): nothing depends on it.
+//! app-events 2.0 retired `hn` (agents post to the local HTTP hub instead). 1.0 builds copied it
+//! to `<data>/bin` and put that on PATH (Windows: user PATH; macOS `/usr/local/bin/hn`, Linux
+//! `~/.local/bin/hn`, symlinks to our copy). This removes exactly those, nothing else.
 
 use hn_engine::paths;
-use serde_json::{json, Value};
 use std::path::PathBuf;
 
 const EXE: &str = if cfg!(windows) { "hn.exe" } else { "hn" };
@@ -12,87 +11,64 @@ fn bin_dir() -> PathBuf {
     paths::data_dir().join("bin")
 }
 
-/// Same file as `hn_engine::integrations::hn_path()`.
-fn dst() -> PathBuf {
-    hn_engine::integrations::hn_path()
-}
-
-fn bundled() -> Option<PathBuf> {
-    let p = std::env::current_exe().ok()?.parent()?.join(EXE);
-    p.is_file().then_some(p)
-}
-
-pub fn status() -> Value {
-    let on_path = hn_engine::integrations::which("hn", std::env::var_os("PATH").as_deref());
-    json!({
-        "installed": dst().is_file(),
-        "path": dst(),
-        "on_path": on_path.is_some() || user_path_has(&bin_dir()),
-    })
-}
-
-/// Copies `hn` (shipped next to the app) to `<data>/bin` when it differs.
-pub fn ensure_copy() -> Result<PathBuf, String> {
-    let src = bundled().ok_or("hn isn't next to the app")?;
+/// Undoes the 1.0 `hn` install. Returns what it did, if anything.
+pub fn retire() -> Option<String> {
     let dir = bin_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let dst = dst();
-    let same = std::fs::read(&src).ok() == std::fs::read(&dst).ok();
-    if !same {
-        // A hook may be running the old copy: move it aside first (works on Windows too).
-        let _ = std::fs::remove_file(dir.join(format!("{EXE}.old")));
-        let _ = std::fs::rename(&dst, dir.join(format!("{EXE}.old")));
-        std::fs::copy(&src, &dst).map_err(|e| format!("copy hn: {e}"))?;
+    let mut done = Vec::new();
+    match remove_from_user_path(&dir) {
+        Ok(true) => done.push("removed from PATH".to_string()),
+        Ok(false) => {}
+        Err(e) => done.push(format!("PATH: {e}")),
     }
-    Ok(dst)
-}
-
-/// Copy + PATH convenience.
-pub fn install() -> Result<String, String> {
-    let dst = ensure_copy()?;
-    add_to_user_path(&bin_dir())?;
-    Ok(format!("{} ready, on PATH", dst.display()))
-}
-
-#[cfg(windows)]
-fn user_path_has(dir: &std::path::Path) -> bool {
-    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
-    let Ok(env) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("Environment") else {
-        return false;
-    };
-    let path: String = env.get_value("Path").unwrap_or_default();
-    let want = dir.to_string_lossy().to_lowercase();
-    path.split(';')
-        .any(|p| p.trim().trim_end_matches('\\').to_lowercase() == want)
+    if dir.exists() {
+        // A hook may still be running the old copy; whatever can't go now goes next start.
+        for f in [EXE.to_string(), format!("{EXE}.old")] {
+            let _ = std::fs::remove_file(dir.join(f));
+        }
+        if std::fs::remove_dir(&dir).is_ok() {
+            done.push(format!("deleted {}", dir.display()));
+        }
+    }
+    (!done.is_empty()).then(|| done.join("; "))
 }
 
 #[cfg(windows)]
-fn add_to_user_path(dir: &std::path::Path) -> Result<(), String> {
+fn remove_from_user_path(dir: &std::path::Path) -> Result<bool, String> {
     use winreg::{enums::*, RegKey};
-    if user_path_has(dir) {
-        return Ok(());
-    }
     let env = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)
         .map_err(|e| e.to_string())?;
-    // Keep REG_EXPAND_SZ values (e.g. %USERPROFILE%) intact.
-    let raw = env.get_raw_value("Path").ok();
-    let current: String = env.get_value("Path").unwrap_or_default();
-    let new = if current.trim().is_empty() {
-        dir.display().to_string()
-    } else {
-        format!("{};{}", current.trim_end_matches(';'), dir.display())
+    let Ok(raw) = env.get_raw_value("Path") else {
+        return Ok(false);
     };
-    let vtype = raw.map(|r| r.vtype).unwrap_or(REG_EXPAND_SZ);
-    let bytes: Vec<u8> = new
+    let current: String = env.get_value("Path").unwrap_or_default();
+    let want = dir.to_string_lossy().to_lowercase();
+    let parts: Vec<&str> = current.split(';').collect();
+    let kept: Vec<&str> = parts
+        .iter()
+        .copied()
+        .filter(|p| p.trim().trim_end_matches('\\').to_lowercase() != want)
+        .collect();
+    if kept.len() == parts.len() {
+        return Ok(false);
+    }
+    // Keep the value type (REG_EXPAND_SZ keeps %USERPROFILE% etc. working).
+    let bytes: Vec<u8> = kept
+        .join(";")
         .encode_utf16()
         .chain(std::iter::once(0))
         .flat_map(|u| u.to_le_bytes())
         .collect();
-    env.set_raw_value("Path", &winreg::RegValue { bytes, vtype })
-        .map_err(|e| e.to_string())?;
+    env.set_raw_value(
+        "Path",
+        &winreg::RegValue {
+            bytes,
+            vtype: raw.vtype,
+        },
+    )
+    .map_err(|e| e.to_string())?;
     broadcast_env_change();
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(windows)]
@@ -119,31 +95,21 @@ fn broadcast_env_change() {
     }
 }
 
+/// Removes the 1.0 symlink, only if it still points at our copy.
 #[cfg(unix)]
-fn user_path_has(dir: &std::path::Path) -> bool {
-    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == dir))
-}
-
-/// D-045: macOS `/usr/local/bin` (GUI-started agents only get launchd's PATH), Linux
-/// `~/.local/bin`. A symlink to our copy, so app updates refresh it.
-#[cfg(unix)]
-fn add_to_user_path(dir: &std::path::Path) -> Result<(), String> {
-    let target_dir = if cfg!(target_os = "macos") {
+fn remove_from_user_path(dir: &std::path::Path) -> Result<bool, String> {
+    let link_dir = if cfg!(target_os = "macos") {
         PathBuf::from("/usr/local/bin")
     } else {
-        dirs_home().ok_or("no home")?.join(".local/bin")
+        match std::env::var_os("HOME") {
+            Some(h) => PathBuf::from(h).join(".local/bin"),
+            None => return Ok(false),
+        }
     };
-    std::fs::create_dir_all(&target_dir).map_err(|e| format!("{}: {e}", target_dir.display()))?;
-    let link = target_dir.join(EXE);
-    if std::fs::read_link(&link).ok().as_deref() == Some(&dir.join(EXE)) {
-        return Ok(());
+    let link = link_dir.join(EXE);
+    if std::fs::read_link(&link).ok().as_deref() != Some(&dir.join(EXE)) {
+        return Ok(false);
     }
-    let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(dir.join(EXE), &link)
-        .map_err(|e| format!("{}: {e} (the installer must create it)", link.display()))
-}
-
-#[cfg(unix)]
-fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    std::fs::remove_file(&link).map_err(|e| format!("{}: {e}", link.display()))?;
+    Ok(true)
 }

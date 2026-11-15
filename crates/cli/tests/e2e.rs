@@ -536,7 +536,7 @@ async fn http_events_drive_the_puck() {
     r.expect_shown("needs", Duration::from_secs(2)).await;
     // Chunked body (some HTTP clients send one).
     let chunked = format!(
-        "POST /v1/event/claude/done HTTP/1.1\r\nHost: localhost:{port}\r\nTransfer-Encoding: chunked\r\n\r\n13\r\n{{\"session_id\":\"h1\"}}\r\n0\r\n\r\n"
+        "POST /v1/event/claude/done HTTP/1.1\r\nHost: localhost:{port}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n13\r\n{{\"session_id\":\"h1\"}}\r\n0\r\n\r\n"
     );
     assert_eq!(
         tokio::task::spawn_blocking(move || http(port, &chunked))
@@ -563,19 +563,29 @@ async fn http_rejects_browsers_and_junk() {
         vec![
             post(port, "/v1/event/claude/working", b, "Origin: https://evil.example\r\n"),
             http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: evil.example:{port}\r\nContent-Length: 2\r\n\r\n{{}}")),
-            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 40000000\r\n\r\n")),
-            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: 40000000\r\n\r\n")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n\r\n")),
             post(port, "/v1/event/claude/busy", b, ""),
             post(port, "/v1/event/Bad!/working", b, ""),
             http(port, &format!("GET /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")),
             post(port, "/elsewhere", b, ""),
+            // POST without a JSON content type (app-events 2.0 §1): 405.
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 2\r\n\r\n{{}}")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n{{}}")),
+            http(port, &format!("POST /v1/clear HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 0\r\n\r\n")),
+            http(port, &format!("POST /v1/event/claude/working HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: Application/JSON; charset=utf-8\r\nContent-Length: 2\r\n\r\n{{}}")),
         ]
     })
     .await
     .unwrap();
-    assert_eq!(codes, vec![403, 403, 413, 411, 400, 400, 405, 404]);
+    assert_eq!(
+        codes,
+        vec![403, 403, 413, 411, 400, 400, 405, 404, 405, 405, 405, 204]
+    );
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(sessions(&r).await.is_empty());
+    assert_eq!(sessions(&r).await, vec!["default"]); // only the last, valid one
+    r.engine.request("clear", &[]).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     // Not JSON at all: accepted as session "default".
     assert_eq!(
         tokio::task::spawn_blocking(move || post(port, "/v1/event/codex/working", "garbage", ""))
@@ -584,7 +594,8 @@ async fn http_rejects_browsers_and_junk() {
         204
     );
     r.expect_shown("working", Duration::from_secs(2)).await;
-    assert_eq!(sessions(&r).await, vec!["default"]);
+    // codex/default (newest) plus the cleared claude/default.
+    assert_eq!(sessions(&r).await, vec!["default", "default"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -726,4 +737,103 @@ async fn http_skill_endpoints_are_guarded() {
     let p = r.sim.puck.lock().unwrap();
     assert_ne!(p.settings["needs.color"], "#000000");
     assert!(p.sounds.is_empty());
+}
+
+/// D-045 over HTTP: Cursor running imported Claude hooks sends `cursor_version`; dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_claude_events_from_cursor_are_dropped() {
+    let (r, port) = http_rig("httpcursor").await;
+    let codes = tokio::task::spawn_blocking(move || {
+        vec![
+            post(
+                port,
+                "/v1/event/claude/working",
+                r#"{"conversation_id":"cur1","cursor_version":"1.7.0","hook_event_name":"beforeSubmitPrompt"}"#,
+                "",
+            ),
+            // Cursor's own integration is fine.
+            post(
+                port,
+                "/v1/event/cursor/working",
+                r#"{"conversation_id":"cur2","cursor_version":"1.7.0"}"#,
+                "",
+            ),
+        ]
+    })
+    .await
+    .unwrap();
+    assert_eq!(codes, vec![204, 204]);
+    r.expect_shown("working", Duration::from_secs(2)).await;
+    assert_eq!(sessions(&r).await, vec!["cur2"]);
+}
+
+fn session_field(st: &serde_json::Value, session: &str, field: &str) -> serde_json::Value {
+    st["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["session"] == session)
+        .map(|s| s[field].clone())
+        .unwrap_or_default()
+}
+
+/// app-events 2.0 §2: a non-Claude session lives as long as the agent process that sent it.
+/// The hub finds it from the connection (Windows): here one agent is this test process itself
+/// (`e2e-….exe`, agent id `e2e`), the other a copy of curl named `codex.exe` that exits at once.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn http_agent_process_liveness() {
+    let curl = std::path::Path::new(r"C:\Windows\System32\curl.exe");
+    if !curl.is_file() {
+        eprintln!("no curl.exe; skipped");
+        return;
+    }
+    let (r, port) = http_rig("httpproc").await;
+    let code = tokio::task::spawn_blocking(move || {
+        post(
+            port,
+            "/v1/event/e2e/working",
+            r#"{"session_id":"alive"}"#,
+            "",
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(code, 204);
+    let dir = tempfile::tempdir().unwrap();
+    let codex = dir.path().join("codex.exe");
+    std::fs::copy(curl, &codex).unwrap();
+    let out = std::process::Command::new(&codex)
+        .args([
+            "-s",
+            "--noproxy",
+            "*",
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            r#"{"session_id":"gone"}"#,
+            &format!("http://127.0.0.1:{port}/v1/event/codex/working"),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let st = r.engine.status().await;
+    assert_eq!(
+        session_field(&st, "alive", "proc")["pid"],
+        std::process::id()
+    );
+    assert!(session_field(&st, "gone", "proc")["pid"].is_u64(), "{st}");
+    // Liveness runs every 2 s: the exited one goes idle, the live one stays.
+    let deadline = Instant::now() + Duration::from_secs(6);
+    loop {
+        let st = r.engine.status().await;
+        if session_field(&st, "gone", "state") == "idle" {
+            assert_eq!(session_field(&st, "gone", "reason"), "codex process gone");
+            assert_eq!(session_field(&st, "alive", "state"), "working");
+            break;
+        }
+        assert!(Instant::now() < deadline, "{st}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }

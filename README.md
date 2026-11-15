@@ -7,8 +7,8 @@ under a lease, so the light always clears itself if anything goes wrong.
 | Part | What |
 |---|---|
 | `crates/core` | `hn-events/1` (agent → app), host side of `hn-usb/2`, session table + liveness rules. No I/O |
-| `crates/engine` | IPC server, puck link (discovery, reconnect), SNAP every 10 s / on change, firmware update, integration manifests. `hnd` = headless app |
-| `crates/cli` | `hn`: the command agent hooks call. Always exits 0 within 1 s, prints nothing for events |
+| `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, integration manifests, proxy check. `hnd` = headless app |
+| `crates/cli` | `hn`: dev/support tool over a named pipe (app-events 1.0; retired for agents, not shipped) |
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
 | `app` | Tauri tray app + settings window (form built from the puck's `SCHEMA`) |
 
@@ -24,17 +24,17 @@ cargo build
 ```
 target/debug/hn-sim --listen 127.0.0.1:47800 --uf2-dir <folder>
 HN_DEV=1 HN_PUCK=tcp:127.0.0.1:47800 target/debug/humanneeded
-echo '{"session_id":"s1"}' | target/debug/hn event --agent claude --state working --stdin-json
-target/debug/hn status
+curl -H 'Content-Type: application/json' -d '{"session_id":"s1"}' http://127.0.0.1:24816/v1/event/claude/working
+curl http://127.0.0.1:24816/v1/status
 ```
 
-Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none`), `HN_IPC`
-(IPC endpoint), `HN_LATEST_URL`, `HN_UF2_DRIVE` (fake drive folder), `HN_DATA_DIR`,
-`HN_DEV=1` (don't add `hn` to PATH or register start-at-login).
+Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none`), `HN_HTTP_PORT`
+(default 24816, 0 = off), `HN_IPC` (pipe for the `hn` dev tool), `HN_LATEST_URL`, `HN_UF2_DRIVE`
+(fake drive folder), `HN_DATA_DIR`, `HN_DEV=1` (don't register start-at-login or clean up PATH).
 
-## For agent integrations
+## For agent integrations (app-events 2.0)
 
-Post each hook's JSON to the app (D-047):
+Post each hook's JSON to the app (D-047), with `Content-Type: application/json`:
 
 ```
 POST http://127.0.0.1:24816/v1/event/<agent>/<working|needs|done|idle|end>
@@ -42,4 +42,9 @@ POST http://127.0.0.1:24816/v1/event/<agent>/<working|needs|done|idle|end>
 
 Reply `204`. Skill endpoints: `GET /v1/status`, `POST /v1/test/<state>`, `/v1/mute/<min>`,
 `/v1/clear`, `/v1/set` `{"key","value"}`. Requests with an `Origin` header or a foreign `Host`
-are refused. `hn` (named pipe) remains as a fallback.
+are refused (403); a POST without a JSON content type gets 405.
+
+Sessions of agents other than Claude live as long as the agent process that sent the hook (found
+from the connection, Windows), else the `ttl` / 2 h rule. Claude events carrying `cursor_version`
+are dropped (Cursor running imported Claude hooks). With `HTTP(S)_PROXY` set and no `127.0.0.1`
+in `NO_PROXY`, the app shows a warning with a one-line fix (D-049).

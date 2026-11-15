@@ -1,4 +1,4 @@
-//! Local HTTP receiver (D-047): agents post hook events straight to the app.
+//! Local HTTP hub (app-events 2.0, D-047, D-048): agents post hook events straight to the app.
 //!
 //! `POST http://127.0.0.1:24816/v1/event/<agent>/<state>[?ttl=<s>]` with the hook's raw JSON as
 //! the body. The session comes from the body's `session_id` (else `conversation_id`, else
@@ -13,9 +13,15 @@
 //! - bound to 127.0.0.1 only;
 //! - any `Origin` header → 403 (browsers always send one on cross-site POSTs);
 //! - `Host` must be `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard);
+//! - every POST must say `Content-Type: application/json` (else 405, app-events 2.0 §1), which
+//!   also keeps out "simple" cross-site form posts;
 //! - headers ≤ 8 KB; bodies up to 32 MB are read (PostToolUse can carry 8 MB+, and a 413
 //!   would show as a hook error in Claude), only the first 1 MB is kept; more → 413; 5 s total;
 //! - one request per connection.
+//!
+//! Also (app-events 2.0 §2): Claude events whose body carries `cursor_version` are dropped
+//! (Cursor running imported Claude hooks, D-045); for other agents the hub notes which agent
+//! process sent the hook ([`crate::procs`]) so the session lives exactly as long as it.
 
 use crate::ipc::Incoming;
 use crate::log;
@@ -82,9 +88,13 @@ pub fn serve(
                             continue;
                         }
                         let tx = tx.clone();
+                        let peer_port = peer.port();
                         tokio::spawn(async move {
-                            let _ =
-                                tokio::time::timeout(READ_TIMEOUT, handle(stream, port, tx)).await;
+                            let _ = tokio::time::timeout(
+                                READ_TIMEOUT,
+                                handle(stream, port, peer_port, tx),
+                            )
+                            .await;
                         });
                     }
                 }
@@ -346,7 +356,20 @@ fn set_args(body: &[u8]) -> Option<Vec<String>> {
     (token_ok(&key) && token_ok(&value)).then(|| vec![key, value])
 }
 
-async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
+fn is_json(req: &Request) -> bool {
+    req.header("content-type").is_some_and(|v| {
+        let mime = v.split(';').next().unwrap_or("").trim();
+        mime.eq_ignore_ascii_case("application/json")
+    })
+}
+
+/// Cursor runs Claude's hooks when it imports them; its hook JSON carries `cursor_version`.
+fn sent_by_cursor(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .is_ok_and(|v| v.get("cursor_version").is_some())
+}
+
+async fn handle(mut s: TcpStream, port: u16, peer_port: u16, tx: mpsc::Sender<Incoming>) {
     let Some(req) = read_head(&mut s).await else {
         return;
     };
@@ -356,6 +379,10 @@ async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
     }
     let path = req.path.split('?').next().unwrap_or("").to_string();
     let method = req.method.as_str();
+    if method == "POST" && !is_json(&req) {
+        reply(&mut s, 405, "").await;
+        return;
+    }
     if path.starts_with("/v1/event/") {
         if method != "POST" {
             reply(&mut s, 405, "").await;
@@ -372,6 +399,22 @@ async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
                 return;
             }
         };
+        if agent == "claude" && sent_by_cursor(&body) {
+            reply(&mut s, 204, "").await;
+            return;
+        }
+        // While curl is still connected: which agent process sent this (Codex/Cursor liveness).
+        // Claude has its own session files; done/idle/end need no liveness.
+        let proc = if agent != "claude" && matches!(state, AgentState::Working | AgentState::Needs)
+        {
+            let a = agent.clone();
+            tokio::task::spawn_blocking(move || crate::procs::agent_behind(peer_port, port, &a))
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         // Answer first: the agent waits on this reply.
         reply(&mut s, 204, "").await;
         drop(s);
@@ -382,6 +425,7 @@ async fn handle(mut s: TcpStream, port: u16, tx: mpsc::Sender<Incoming>) {
             state,
             ts: hn_sim::now_ms(),
             ttl,
+            proc,
         };
         let _ = tx
             .send(Incoming {

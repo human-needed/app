@@ -81,6 +81,7 @@ fn parse_event(args: &[String], stdin: impl FnOnce() -> Option<Vec<u8>>) -> Opti
         state,
         ts: now_ms(),
         ttl,
+        proc: None,
     })
 }
 

@@ -44,6 +44,18 @@ pub struct Event {
     pub ts: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl: Option<u64>,
+    /// The agent process that sent it (found by the HTTP hub; liveness for Codex/Cursor).
+    /// Never on the wire.
+    #[serde(skip)]
+    pub proc: Option<AgentProc>,
+}
+
+/// A process, by pid and creation time (so a reused pid doesn't count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub struct AgentProc {
+    pub pid: u32,
+    /// OS creation time (Windows: FILETIME, 100 ns since 1601).
+    pub start: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,6 +201,7 @@ mod tests {
             state: AgentState::Done,
             ts: 9,
             ttl: Some(30),
+            proc: None,
         };
         let line = serde_json::to_string(&e).unwrap();
         assert_eq!(parse_line(&line).unwrap(), Message::Event(e));

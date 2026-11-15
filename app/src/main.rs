@@ -91,7 +91,7 @@ async fn integrations_list() -> R<Value> {
         tauri::async_runtime::spawn_blocking(|| integrations::list(&integrations::Env::current()))
             .await
             .map_err(|e| e.to_string())?;
-    Ok(json!({ "agents": list, "hn": hn_install::status() }))
+    Ok(json!({ "agents": list }))
 }
 
 #[tauri::command]
@@ -106,13 +106,6 @@ async fn integration_install(id: String, remove: bool) -> R<String> {
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn hn_install_path() -> R<String> {
-    tauri::async_runtime::spawn_blocking(hn_install::install)
-        .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -178,7 +171,6 @@ fn main() {
             fw_update,
             integrations_list,
             integration_install,
-            hn_install_path,
             autostart_get,
             autostart_set,
             open_log
@@ -196,19 +188,14 @@ fn main() {
             app.manage(engine.clone());
             // HN_DEV=1 (development, tests): don't touch PATH or the login items.
             let dev = std::env::var_os("HN_DEV").is_some();
-            // The app's own `hn` copy, which installed hooks call by absolute path (D-046).
-            // PATH is only a convenience, skipped in dev.
-            std::thread::spawn(move || {
-                let r = if dev {
-                    hn_install::ensure_copy().map(|p| p.display().to_string())
-                } else {
-                    hn_install::install()
-                };
-                match r {
-                    Ok(m) => log!("hn: {m}"),
-                    Err(e) => log!("hn: {e}"),
-                }
-            });
+            // app-events 2.0 retired `hn`: remove what 1.0 builds put on PATH (skipped in dev).
+            if !dev {
+                std::thread::spawn(|| {
+                    if let Some(m) = hn_install::retire() {
+                        log!("hn: {m}");
+                    }
+                });
+            }
             if first_run && !dev {
                 let _ = std::fs::create_dir_all(paths::data_dir());
                 let _ = std::fs::write(paths::data_dir().join("seen"), "1");

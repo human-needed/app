@@ -1,11 +1,13 @@
 //! Liveness sources (app-events §3): Claude's session files + "is this process still the one".
 
 use hn_core::claude::parse_session_file;
+use hn_core::event::AgentProc;
 use hn_core::sessions::{ClaudeObservation, Observations};
 use std::path::Path;
 
-/// Reads `<claude_dir>/sessions/*.json`. `None` if the folder can't be read at all.
-pub fn observe(claude_dir: Option<&Path>) -> Observations {
+/// Reads `<claude_dir>/sessions/*.json` (`None` if the folder can't be read at all) and checks
+/// whether each agent process in `procs` still runs.
+pub fn observe(claude_dir: Option<&Path>, procs: &[AgentProc]) -> Observations {
     let claude = claude_dir.and_then(|dir| {
         let rd = std::fs::read_dir(dir.join("sessions")).ok()?;
         let mut out = Vec::new();
@@ -25,7 +27,11 @@ pub fn observe(claude_dir: Option<&Path>) -> Observations {
         }
         Some(out)
     });
-    Observations { claude }
+    let procs = procs
+        .iter()
+        .map(|p| (*p, crate::procs::process_start(p.pid) == Some(p.start)))
+        .collect();
+    Observations { claude, procs }
 }
 
 /// True if `pid` runs and (when we can tell) started at `proc_start`, so a reused pid of a
@@ -98,11 +104,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.path().join("sessions/x.key"), "junk").unwrap();
-        let obs = observe(Some(dir.path()));
+        let obs = observe(Some(dir.path()), &[]);
         let files = obs.claude.unwrap();
         assert_eq!(files.len(), 1);
         assert!(files[0].alive);
         assert_eq!(files[0].file.session_id, "abc");
-        assert!(observe(Some(&dir.path().join("missing"))).claude.is_none());
+        assert!(observe(Some(&dir.path().join("missing")), &[])
+            .claude
+            .is_none());
     }
 }

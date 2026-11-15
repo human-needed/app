@@ -3,12 +3,14 @@
 //! All agents' sessions are merged here; the puck only gets the resulting snapshot. A session is
 //! shown (`working`/`needs`) only while a liveness source keeps confirming it:
 //! - Claude local: its `~/.claude/sessions/<pid>.json` (busy/idle, file gone) + process alive.
+//! - Codex, Cursor (any agent whose hook came over HTTP from a process we could find): that
+//!   agent process alive; gone → idle.
 //! - anything else: the event's `ttl`, otherwise 2 h without an event.
 //!
 //! Time is passed in (ms since the Unix epoch) so every rule is unit-testable.
 
 use crate::claude::{ClaudeSessionFile, ClaudeStatus};
-use crate::event::{AgentState, Event};
+use crate::event::{AgentProc, AgentState, Event};
 use crate::ids::puck_id;
 use crate::proto::{SnapState, MAX_ENTRIES};
 use serde::Serialize;
@@ -60,6 +62,8 @@ pub struct Session {
     pub ttl: Option<u64>,
     /// The Claude process this session was found in.
     pub pid: Option<u32>,
+    /// The agent process that sent its events (non-Claude agents, from the HTTP hub).
+    pub proc: Option<AgentProc>,
 }
 
 /// What a `done` etc. asks the puck to do besides the snapshot.
@@ -80,6 +84,8 @@ pub struct ClaudeObservation {
 pub struct Observations {
     /// `None` = Claude's sessions folder couldn't be read: fall back to the generic rule.
     pub claude: Option<Vec<ClaudeObservation>>,
+    /// Whether each agent process in [`Table::agent_procs`] is still running.
+    pub procs: HashMap<AgentProc, bool>,
 }
 
 #[derive(Debug, Default)]
@@ -122,11 +128,15 @@ impl Table {
             set_at: now,
             ttl: None,
             pid: None,
+            proc: None,
         });
         s.last_ts = ev.ts;
         s.last_seen = now;
         s.set_at = now;
         s.ttl = ev.ttl;
+        if ev.proc.is_some() {
+            s.proc = ev.proc;
+        }
         let (state, reason) = match ev.state {
             AgentState::Working => (State::Working, "event working"),
             AgentState::Needs => (State::Needs, "event needs"),
@@ -166,6 +176,19 @@ impl Table {
             _ => true,
         });
         changed
+    }
+
+    /// Agent processes the liveness check must look at (shown non-Claude sessions).
+    pub fn agent_procs(&self) -> Vec<AgentProc> {
+        let mut v: Vec<AgentProc> = self
+            .sessions
+            .values()
+            .filter(|s| s.agent != "claude" && s.state.snap().is_some())
+            .filter_map(|s| s.proc)
+            .collect();
+        v.sort_by_key(|p| (p.pid, p.start));
+        v.dedup();
+        v
     }
 
     /// Removes everything (e.g. "clear the puck").
@@ -241,6 +264,18 @@ fn drop_reason(s: &mut Session, obs: &Observations, now: u64) -> Option<String> 
         }
     }
     let silent = now.saturating_sub(s.last_seen);
+    if s.agent != "claude" {
+        if let Some(alive) = s.proc.and_then(|p| obs.procs.get(&p)) {
+            if !alive {
+                return Some(format!("{} process gone", s.agent));
+            }
+            // Alive: stays (D-020) unless the event asked for a ttl.
+            return match s.ttl {
+                Some(ttl) if silent > ttl * 1000 => Some("ttl expired".into()),
+                _ => None,
+            };
+        }
+    }
     match s.ttl {
         Some(ttl) if silent > ttl * 1000 => Some("ttl expired".into()),
         Some(_) => None,
@@ -261,7 +296,38 @@ mod tests {
             state,
             ts,
             ttl: None,
+            proc: None,
         }
+    }
+
+    #[test]
+    fn agent_process_keeps_session_until_it_exits() {
+        let p = AgentProc { pid: 42, start: 7 };
+        let mut t = Table::new();
+        let mut e = ev("codex", "c1", AgentState::Working, 1);
+        e.proc = Some(p);
+        t.apply(&e, 0);
+        assert_eq!(t.agent_procs(), vec![p]);
+        let mut obs = Observations::default();
+        obs.procs.insert(p, true);
+        // Alive: no 2 h fallback (long tasks stay working, D-020).
+        assert!(!t.check(&obs, FALLBACK_IDLE_MS * 3));
+        obs.procs.insert(p, false);
+        let changed = t.check_changes(&obs, FALLBACK_IDLE_MS * 3 + 1);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].reason, "codex process gone");
+        assert!(t.agent_procs().is_empty());
+        // A later event without a process keeps the known one.
+        t.apply(&ev("codex", "c1", AgentState::Working, 2), 10);
+        assert_eq!(t.list()[0].proc, Some(p));
+    }
+
+    #[test]
+    fn agent_without_process_info_uses_fallback() {
+        let mut t = Table::new();
+        t.apply(&ev("codex", "c1", AgentState::Working, 1), 0);
+        assert!(t.agent_procs().is_empty());
+        assert!(t.check(&Observations::default(), FALLBACK_IDLE_MS + 1));
     }
 
     fn claude_file(
@@ -282,6 +348,7 @@ mod tests {
                 },
                 alive,
             }]),
+            ..Default::default()
         }
     }
 
@@ -415,7 +482,8 @@ mod tests {
         // App quit: file removed.
         assert!(t.check(
             &Observations {
-                claude: Some(vec![])
+                claude: Some(vec![]),
+                ..Default::default()
             },
             3
         ));
@@ -428,13 +496,15 @@ mod tests {
         t.apply(&ev("claude", "cloud1", AgentState::Working, 1), 0);
         assert!(!t.check(
             &Observations {
-                claude: Some(vec![])
+                claude: Some(vec![]),
+                ..Default::default()
             },
             1000
         ));
         assert!(t.check(
             &Observations {
-                claude: Some(vec![])
+                claude: Some(vec![]),
+                ..Default::default()
             },
             FALLBACK_IDLE_MS + 1
         ));

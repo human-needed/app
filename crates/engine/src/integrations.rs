@@ -1,14 +1,17 @@
-//! Integration detect / install / remove (app-events §6, §6b, D-037, D-045), driven by WS-PLUG's
-//! manifest (`hn-integrations/0`), vendored in `integrations/` and embedded at build time.
+//! Integration detect / install / remove (app-events 2.0 §6, D-037, D-045, D-047), driven by
+//! WS-PLUG's manifest (`hn-integrations/0`), vendored in `integrations/` and embedded at build time.
+//! Hooks POST to the app's local HTTP hub; the template files are written as they are.
 //!
 //! Supported manifest operations:
 //! - detect `any`: `{dir, os?}`, `{command}`
 //! - installed: `{json, pointer, equals}`, `{hooks_json, marker}`
-//! - install: `{preferred: {run}, fallback: {json_merge, set}}`, `{hooks_json_merge, from, format, after?}`
+//! - install: `{preferred: {run}, fallback: {json_merge, set}}`,
+//!   `{hooks_json_merge, from (path or {os: path}), format, after?}`
 //! - remove: `{run, fallback: {json_merge, delete}}`, `{hooks_json_remove, marker}`
 //!
-//! File edits keep every entry that is not ours (ours = a hook command starting with the marker)
-//! and are written atomically, with a one-time `.hn-backup` copy of the original.
+//! File edits keep every entry that is not ours (ours = a hook command containing the marker, or
+//! a 1.0 hook that ran `hn event --agent <id>`, so upgrading replaces those) and are written
+//! atomically, with a one-time `.hn-backup` copy of the original.
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -18,12 +21,16 @@ use std::process::Command;
 const MANIFEST: &str = include_str!("../integrations/manifest.json");
 const FILES: &[(&str, &str)] = &[
     (
-        "plugins/codex/hooks/hooks.json",
-        include_str!("../integrations/plugins/codex/hooks/hooks.json"),
+        "plugins/codex/hooks.json",
+        include_str!("../integrations/plugins/codex/hooks.json"),
     ),
     (
         "plugins/cursor/hooks.json",
         include_str!("../integrations/plugins/cursor/hooks.json"),
+    ),
+    (
+        "plugins/cursor/hooks.windows.json",
+        include_str!("../integrations/plugins/cursor/hooks.windows.json"),
     ),
 ];
 
@@ -47,8 +54,6 @@ pub struct Env {
     pub home: Option<PathBuf>,
     pub appdata: Option<PathBuf>,
     pub path: Option<std::ffi::OsString>,
-    /// The app's own `hn` (D-046): hooks written by the app call it by absolute path.
-    pub hn: Option<PathBuf>,
 }
 
 impl Env {
@@ -57,7 +62,6 @@ impl Env {
             home: dirs::home_dir(),
             appdata: std::env::var_os("APPDATA").map(PathBuf::from),
             path: std::env::var_os("PATH"),
-            hn: Some(hn_path()),
         }
     }
 
@@ -215,13 +219,6 @@ fn pointer_delete(root: &mut Value, pointer: &str) {
     }
 }
 
-/// Where the app keeps its own copy of `hn` (`<data>/bin`, stable across app updates).
-pub fn hn_path() -> PathBuf {
-    crate::paths::data_dir()
-        .join("bin")
-        .join(if cfg!(windows) { "hn.exe" } else { "hn" })
-}
-
 /// Splits a hook command into its program and the rest. Handles `prog`, `"prog"`, `'prog'`
 /// and PowerShell's `& "prog"`.
 fn split_command(cmd: &str) -> (&str, &str) {
@@ -242,62 +239,25 @@ fn split_command(cmd: &str) -> (&str, &str) {
     }
 }
 
-/// `hn`, `{hn}` (manifest placeholder) or any path to `hn` / `hn.exe`.
-fn is_hn_program(prog: &str) -> bool {
-    if prog == "{hn}" {
-        return true;
-    }
+/// A 1.0 hook (`hn event --agent <id> …`, `hn` by name, `{hn}` or any path to `hn`/`hn.exe`).
+fn is_legacy_hn_hook(cmd: &str, agent: &str) -> bool {
+    let (prog, rest) = split_command(cmd);
     let base = prog
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(prog)
         .to_ascii_lowercase();
-    base == "hn" || base == "hn.exe"
+    let hn = prog == "{hn}" || base == "hn" || base == "hn.exe";
+    let agent_arg = format!("event --agent {agent}");
+    hn && (rest == agent_arg || rest.starts_with(&format!("{agent_arg} ")))
 }
 
-/// Ours = runs `hn` (by name, placeholder or absolute path) with the marker's arguments.
-fn is_ours(hook: &Value, marker: &str) -> bool {
+/// Ours = the command contains the marker (the hub URL for this agent), or is a 1.0 `hn` hook.
+fn is_ours(hook: &Value, marker: &str, agent: &str) -> bool {
     let Some(cmd) = hook["command"].as_str() else {
         return false;
     };
-    let (_, marker_rest) = split_command(marker);
-    let (prog, rest) = split_command(cmd);
-    is_hn_program(prog) && rest.starts_with(marker_rest)
-}
-
-/// How a hook spells the absolute `hn` path: quoted only when needed. Cursor on Windows runs
-/// hooks in PowerShell, where a quoted program needs `&`.
-fn hn_program(hn: &Path, format: &str) -> String {
-    let p = hn.display().to_string();
-    if !p.chars().any(char::is_whitespace) {
-        p
-    } else if cfg!(windows) && format == "cursor" {
-        format!("& \"{p}\"")
-    } else {
-        format!("\"{p}\"")
-    }
-}
-
-/// Replaces `hn` / `{hn}` at the start of every hook command with the app's absolute `hn`.
-fn pin_hn(v: &mut Value, hn: &Path, format: &str) {
-    match v {
-        Value::Object(m) => {
-            if let Some(Value::String(cmd)) = m.get("command") {
-                let (prog, rest) = split_command(cmd);
-                if prog == "hn" || prog == "{hn}" {
-                    let new = format!("{} {rest}", hn_program(hn, format));
-                    m.insert("command".into(), Value::String(new.trim_end().to_string()));
-                }
-            }
-            for (_, child) in m.iter_mut() {
-                if child.is_object() || child.is_array() {
-                    pin_hn(child, hn, format);
-                }
-            }
-        }
-        Value::Array(a) => a.iter_mut().for_each(|c| pin_hn(c, hn, format)),
-        _ => {}
-    }
+    cmd.contains(marker) || is_legacy_hn_hook(cmd, agent)
 }
 
 /// Every hook command in a hooks file (Claude/Codex groups or Cursor flat entries).
@@ -319,7 +279,7 @@ fn commands(file: &Value) -> Vec<&Value> {
 }
 
 /// Removes our hooks; groups left empty are dropped, as are empty event lists.
-fn remove_ours(file: &mut Value, marker: &str) {
+fn remove_ours(file: &mut Value, marker: &str, agent: &str) {
     let Some(events) = file.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return;
     };
@@ -329,10 +289,10 @@ fn remove_ours(file: &mut Value, marker: &str) {
         };
         list.retain_mut(|e| {
             if e.get("command").is_some() {
-                return !is_ours(e, marker);
+                return !is_ours(e, marker, agent);
             }
             if let Some(hooks) = e.get_mut("hooks").and_then(|h| h.as_array_mut()) {
-                hooks.retain(|h| !is_ours(h, marker));
+                hooks.retain(|h| !is_ours(h, marker, agent));
                 return !hooks.is_empty();
             }
             true
@@ -341,14 +301,14 @@ fn remove_ours(file: &mut Value, marker: &str) {
     events.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
 }
 
-fn merge_hooks(file: &mut Value, from: &Value, marker: &str, format: &str) {
+fn merge_hooks(file: &mut Value, from: &Value, marker: &str, agent: &str, format: &str) {
     if !file.is_object() {
         *file = json!({});
     }
     if format == "cursor" && file.get("version").is_none() {
         file["version"] = json!(1);
     }
-    remove_ours(file, marker);
+    remove_ours(file, marker, agent);
     if !file["hooks"].is_object() {
         file["hooks"] = json!({});
     }
@@ -364,18 +324,23 @@ fn merge_hooks(file: &mut Value, from: &Value, marker: &str, format: &str) {
     }
 }
 
-fn installed(spec: &Value, remove: &Value, env: &Env) -> bool {
+fn installed(a: &Value, env: &Env) -> bool {
+    let spec = &a["installed"];
     if let (Some(file), Some(ptr)) = (spec["json"].as_str(), spec["pointer"].as_str()) {
         let v = env.expand(file).and_then(|p| read_json(&p));
         return v.and_then(|v| v.pointer(ptr).cloned()) == Some(spec["equals"].clone());
     }
     if let Some(file) = spec["hooks_json"].as_str() {
-        let marker = spec["marker"]
-            .as_str()
-            .or(remove["marker"].as_str())
-            .unwrap_or("hn event");
+        // Only current hooks count as installed: 1.0 `hn` hooks need a reinstall.
+        let Some(marker) = spec["marker"].as_str().or(a["remove"]["marker"].as_str()) else {
+            return false;
+        };
         let v = env.expand(file).and_then(|p| read_json(&p));
-        return v.is_some_and(|v| commands(&v).iter().any(|h| is_ours(h, marker)));
+        return v.is_some_and(|v| {
+            commands(&v)
+                .iter()
+                .any(|h| h["command"].as_str().is_some_and(|c| c.contains(marker)))
+        });
     }
     false
 }
@@ -443,12 +408,30 @@ fn agent(id: &str) -> Result<Value, String> {
         .ok_or(format!("unknown agent {id}"))
 }
 
-fn marker_of(a: &Value) -> String {
+fn marker_of(id: &str, a: &Value) -> String {
     a["remove"]["marker"]
         .as_str()
         .or(a["installed"]["marker"].as_str())
-        .unwrap_or("hn event")
-        .to_string()
+        .map(String::from)
+        .unwrap_or_else(|| format!("127.0.0.1:24816/v1/event/{id}/"))
+}
+
+/// `from` is a path or `{"windows": path, "macos": path, "linux": path}`.
+fn template_for(from: &Value) -> Result<Value, String> {
+    let path = match from {
+        Value::String(p) => p.as_str(),
+        Value::Object(m) => m
+            .get(this_os())
+            .and_then(|p| p.as_str())
+            .ok_or(format!("no hooks file for {}", this_os()))?,
+        _ => return Err("bad manifest".into()),
+    };
+    let text = FILES
+        .iter()
+        .find(|(p, _)| *p == path)
+        .ok_or(format!("missing {path}"))?
+        .1;
+    serde_json::from_str(text).map_err(|e| e.to_string())
 }
 
 pub fn list(env: &Env) -> Vec<Integration> {
@@ -467,7 +450,7 @@ pub fn list(env: &Env) -> Vec<Integration> {
                 id: id.clone(),
                 name: a["name"].as_str().unwrap_or(id).to_string(),
                 detected: detected(&a["detect"], env),
-                installed: installed(&a["installed"], &a["remove"], env),
+                installed: installed(a, env),
                 can_install,
                 manual: a["manual"].as_str().unwrap_or_default().to_string(),
                 after: install["after"].as_str().map(String::from),
@@ -493,23 +476,11 @@ pub fn install(id: &str, env: &Env) -> Result<String, String> {
             json_edit(&spec["fallback"], env)?;
         }
     } else if let Some(file) = spec["hooks_json_merge"].as_str() {
-        let from = spec["from"].as_str().ok_or("bad manifest")?;
-        let src = FILES
-            .iter()
-            .find(|(p, _)| *p == from)
-            .ok_or(format!("missing {from}"))?
-            .1;
-        let mut src: Value = serde_json::from_str(src).map_err(|e| e.to_string())?;
+        let src = template_for(&spec["from"])?;
         let format = spec["format"].as_str().unwrap_or("");
-        let hn = env
-            .hn
-            .as_ref()
-            .filter(|p| p.is_file())
-            .ok_or("the app's hn command is missing; reinstall HumanNeeded")?;
-        pin_hn(&mut src, hn, format);
         let path = env.expand(file).ok_or("no home folder")?;
         let mut v = read_json(&path).unwrap_or_else(|| json!({}));
-        merge_hooks(&mut v, &src, &marker_of(&a), format);
+        merge_hooks(&mut v, &src, &marker_of(id, &a), id, format);
         write_json(&path, &v)?;
     } else {
         return Err("not available yet".into());
@@ -538,7 +509,7 @@ pub fn uninstall(id: &str, env: &Env) -> Result<String, String> {
     } else if let Some(file) = spec["hooks_json_remove"].as_str() {
         let path = env.expand(file).ok_or("no home folder")?;
         if let Some(mut v) = read_json(&path) {
-            remove_ours(&mut v, &marker_of(&a));
+            remove_ours(&mut v, &marker_of(id, &a), id);
             write_json(&path, &v)?;
         }
     } else {
@@ -552,76 +523,96 @@ mod tests {
     use super::*;
 
     fn env(home: &Path) -> Env {
-        // A fake app-owned hn, in a folder with a space to exercise quoting.
-        let bin = home.join("Hn App").join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let hn = bin.join(if cfg!(windows) { "hn.exe" } else { "hn" });
-        std::fs::write(&hn, "").unwrap();
         Env {
             home: Some(home.into()),
             appdata: Some(home.join("AppData")),
             path: None,
-            hn: Some(hn),
         }
     }
 
+    const CODEX: &str = "127.0.0.1:24816/v1/event/codex/";
+
     #[test]
-    fn recognises_our_hooks_however_hn_is_spelled() {
-        let m = "hn event --agent codex";
+    fn recognises_our_hooks_new_and_legacy() {
         for cmd in [
+            "curl -s --data-binary @- http://127.0.0.1:24816/v1/event/codex/done || true",
+            "$input | curl.exe -s http://127.0.0.1:24816/v1/event/codex/working; exit 0",
+            // 1.0 hooks, removed on upgrade:
             "hn event --agent codex --state done --stdin-json",
             "{hn} event --agent codex --state done",
             r#""C:\Users\A B\AppData\Local\HumanNeeded\bin\hn.exe" event --agent codex --state done"#,
             r#"& "C:\x y\hn.exe" event --agent codex --state done"#,
             "/usr/local/bin/hn event --agent codex --state end",
         ] {
-            assert!(is_ours(&json!({ "command": cmd }), m), "{cmd}");
+            assert!(is_ours(&json!({ "command": cmd }), CODEX, "codex"), "{cmd}");
         }
         for cmd in [
+            "curl http://127.0.0.1:24816/v1/event/cursor/done",
             "hn event --agent cursor --state done",
+            "hn event --agent codexx --state done",
             "other-tool done",
             "nohn event --agent codex",
         ] {
-            assert!(!is_ours(&json!({ "command": cmd }), m), "{cmd}");
+            assert!(
+                !is_ours(&json!({ "command": cmd }), CODEX, "codex"),
+                "{cmd}"
+            );
         }
     }
 
     #[test]
-    fn installed_hooks_call_the_apps_hn_by_absolute_path() {
+    fn installed_hooks_post_to_the_hub() {
         let d = tempfile::tempdir().unwrap();
         let e = env(d.path());
         install("cursor", &e).unwrap();
         install("codex", &e).unwrap();
-        let hn = e.hn.as_ref().unwrap().display().to_string();
-        for f in [".cursor/hooks.json", ".codex/hooks.json"] {
+        for (f, agent) in [
+            (".cursor/hooks.json", "cursor"),
+            (".codex/hooks.json", "codex"),
+        ] {
             let v = read_json(&d.path().join(f)).unwrap();
-            for h in commands(&v) {
+            let cmds = commands(&v);
+            assert!(!cmds.is_empty());
+            for h in cmds {
                 let c = h["command"].as_str().unwrap();
-                assert!(c.contains(&hn), "{f}: {c}");
-                assert!(!c.starts_with("hn "), "{c}");
+                assert!(
+                    c.contains(&format!("http://127.0.0.1:24816/v1/event/{agent}/")),
+                    "{c}"
+                );
+                assert!(c.contains("--noproxy"), "{c}");
             }
         }
         let v = read_json(&d.path().join(".cursor/hooks.json")).unwrap();
         let c = v["hooks"]["stop"][0]["command"].as_str().unwrap();
-        if cfg!(windows) {
-            assert!(
-                c.starts_with("& \""),
-                "PowerShell needs & for a quoted path: {c}"
-            );
-        }
-        assert!(
-            c.ends_with("event --agent cursor --state done --stdin-json"),
-            "{c}"
-        );
+        // Cursor runs hooks in PowerShell on Windows: the PowerShell form there.
+        assert_eq!(c.starts_with("$input | curl.exe"), cfg!(windows), "{c}");
+        assert!(c.contains("/v1/event/cursor/done"), "{c}");
     }
 
     #[test]
-    fn install_without_the_apps_hn_fails_cleanly() {
+    fn upgrade_replaces_hn_hooks() {
         let d = tempfile::tempdir().unwrap();
-        let mut e = env(d.path());
-        e.hn = Some(d.path().join("missing").join("hn"));
-        assert!(install("cursor", &e).unwrap_err().contains("hn"));
-        assert!(!d.path().join(".cursor/hooks.json").exists());
+        let cdir = d.path().join(".cursor");
+        std::fs::create_dir(&cdir).unwrap();
+        std::fs::write(
+            cdir.join("hooks.json"),
+            r#"{"version":1,"hooks":{"stop":[{"command":"hn event --agent cursor --state done --stdin-json"},{"command":"mine"}]}}"#,
+        )
+        .unwrap();
+        let e = env(d.path());
+        let c = list(&e).into_iter().find(|i| i.id == "cursor").unwrap();
+        assert!(!c.installed, "1.0 hooks need a reinstall");
+        install("cursor", &e).unwrap();
+        let v = read_json(&cdir.join("hooks.json")).unwrap();
+        let stop: Vec<&str> = v["hooks"]["stop"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["command"].as_str().unwrap())
+            .collect();
+        assert_eq!(stop.len(), 2, "{stop:?}");
+        assert!(stop.contains(&"mine"));
+        assert!(stop.iter().all(|c| !c.starts_with("hn ")));
     }
 
     #[test]
@@ -709,7 +700,7 @@ mod tests {
             .collect();
         assert_eq!(
             cmds.iter()
-                .filter(|c| c.contains("event --agent codex --state done"))
+                .filter(|c| c.contains("/v1/event/codex/done"))
                 .count(),
             1
         );
@@ -744,7 +735,7 @@ mod tests {
         assert!(v["hooks"]["stop"][0]["command"]
             .as_str()
             .unwrap()
-            .ends_with("event --agent cursor --state done --stdin-json"));
+            .contains("/v1/event/cursor/done"));
         assert!(
             list(&e)
                 .into_iter()

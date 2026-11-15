@@ -150,7 +150,8 @@ impl Engine {
                     ticks += 1;
                     if ticks.is_multiple_of(2) {
                         let dir = self.config.claude_dir.clone();
-                        let obs = tokio::task::spawn_blocking(move || liveness::observe(dir.as_deref())).await.unwrap_or_default();
+                        let procs = self.shared.lock().unwrap().table.agent_procs();
+                        let obs = tokio::task::spawn_blocking(move || liveness::observe(dir.as_deref(), &procs)).await.unwrap_or_default();
                         let changed = self.shared.lock().unwrap().table.check_changes(&obs, now_ms());
                         for c in &changed {
                             log!("liveness {} {} -> idle ({})", c.agent, c.session, c.reason);
@@ -286,6 +287,8 @@ impl Engine {
             "ok": true,
             "app": {"version": APP_VERSION, "ipc": self.config.endpoint.display().to_string(), "log": log::path()},
             "http": self.http.lock().unwrap().clone(),
+            // D-049: Claude would send its hooks to a proxy.
+            "proxy": crate::proxy::current(self.config.claude_dir.as_deref()),
             "puck": match puck {
                 Some(p) => json!({
                     "connected": true, "port": p.port, "fw": p.hello.fw, "board": p.hello.board,

@@ -44,6 +44,12 @@ fn look_of(status: &Value) -> (Look, String) {
             format!("HumanNeeded: agents can't reach the app ({err})"),
         );
     }
+    if status["proxy"].is_object() {
+        return (
+            Look::NoPuck,
+            "HumanNeeded: a proxy setting blocks agents (open HumanNeeded to fix)".into(),
+        );
+    }
     if status["puck"]["connected"] != true {
         return (Look::NoPuck, "HumanNeeded: puck not connected".into());
     }

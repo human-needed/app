@@ -137,6 +137,11 @@ async function refresh() {
   $('http-note').textContent = h.error
     ? `Agents can't reach HumanNeeded: ${h.error}. Close that program or restart your computer; HumanNeeded keeps retrying.`
     : '';
+  // D-049: with a proxy set, Claude sends its hooks to the proxy unless NO_PROXY has 127.0.0.1.
+  const px = st.proxy;
+  $('proxy-note').classList.toggle('hidden', !px);
+  $('proxy-problem').textContent = px ? px.problem : '';
+  $('proxy-fix').textContent = px ? px.fix : '';
   $('http-info').textContent = h.port ? `Agent events: http://127.0.0.1:${h.port}${h.listening ? '' : ' (not listening)'}` : '';
   let shown = 'off';
   if (!p.connected) {
@@ -184,9 +189,6 @@ async function refreshAgents() {
         ? `<button class="tip" type="button" aria-label="Install by hand" data-tip="${esc(a.manual)}">?</button>` : '';
       return `<li><span class="grow">${esc(a.name)}</span>${manual}${right}</li>`;
     }).join('');
-    // Info only (D-046): integrations call hn by absolute path; PATH is a convenience.
-    const hn = r.hn;
-    $('hn-info').textContent = `hn command: ${hn.path}${hn.on_path ? ' (also on PATH)' : ''}`;
   } catch (e) { showError(e); }
 }
 $('agents').addEventListener('click', async (ev) => {
