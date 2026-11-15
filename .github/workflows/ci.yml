@@ -1,26 +1,29 @@
 name: ci
+permissions:
+  contents: read
+
 on:
-  pull_request:
-  push:
-    branches: [main]
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.pull_request:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.push:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.  branches: [main]
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Linux deps (Tauri, serial)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      # Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.
-      - run: cargo test --workspace
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.test:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.  strategy:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    fail-fast: false
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    matrix:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.      os: [windows-latest, macos-latest, ubuntu-latest]
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.  runs-on: ${{ matrix.os }}
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.  steps:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - uses: actions/checkout@v7
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - uses: dtolnay/rust-toolchain@stable
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.      with:
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.        components: clippy, rustfmt
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - name: Linux deps (Tauri, serial)
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.      if: runner.os == 'Linux'
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.      run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - uses: Swatinem/rust-cache@v2
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - run: cargo fmt --all --check
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - run: cargo clippy --workspace --all-targets -- -D warnings
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    # Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.
+ Unit tests + integration tests: real `hn` binary -> IPC -> engine -> puck simulator.    - run: cargo test --workspace
