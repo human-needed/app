@@ -1,0 +1,47 @@
+/* HumanNeeded theme: Graphite Console (D-055). Shared tokens for the app and, later, the site.
+   Graphite ground, hairline seams, ring white as the only accent; colour only for state.
+   Fonts are bundled (fonts/, SIL OFL 1.1): no CDN. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* Type */
+  --hn-font: "Geist", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --hn-font-mono: "Geist Mono", ui-monospace, Consolas, monospace;
+
+  /* Graphite (the puck's body) */
+  --hn-ground: #161719;      /* page / panel ground */
+  --hn-raised: #1e2022;      /* tiles, fields */
+  --hn-raised-2: #26292c;    /* hover, pressed */
+  --hn-seam: #2f3235;        /* hairlines */
+  --hn-seam-strong: #45494d;
+  --hn-text: #e7e9ea;        /* also "ring white", the accent */
+  --hn-muted: #969ba0;
+  --hn-faint: #6b7075;
+  --hn-accent: var(--hn-text);
+  --hn-on-accent: var(--hn-ground);
+
+  /* State colours: the same words and colours everywhere (puck, tray, app, site) */
+  --hn-working: #4a78ff;
+  --hn-needs: #ff8a1f;
+  --hn-done: #26c25a;
+  --hn-idle: #f2c9a0;
+  --hn-problem: #ff8f80;
+  --hn-ok: #26c25a;
+
+  /* Shape */
+  --hn-radius: 12px;
+  --hn-radius-sm: 8px;
+  --hn-hairline: 1px solid var(--hn-seam);
+}

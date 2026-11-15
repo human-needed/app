@@ -2,7 +2,7 @@
 
 use crate::ipc::{self, Incoming};
 use crate::link::{Link, LinkEvent, PuckTarget};
-use crate::{agents, firmware, liveness, log, paths};
+use crate::{agents, firmware, liveness, log, paths, quiet};
 use hn_core::event::Message;
 use hn_core::proto::{snap_line, Hello, SnapState, LEASE_S, RESEND_MS};
 use hn_core::sessions::Table;
@@ -74,6 +74,7 @@ struct Shared {
     /// Set while a firmware update runs (no snapshots then).
     updating: Option<String>,
     seen: agents::Seen,
+    quiet: quiet::Quiet,
 }
 
 #[derive(Clone)]
@@ -108,6 +109,12 @@ impl Engine {
             crate::cloud::Cloud::start(cfg, in_tx.clone(), move || changes.send_modify(|n| *n += 1))
         });
         let seen = agents::Seen::load(config.agents_file.clone());
+        let quiet = quiet::Quiet::load(
+            config
+                .agents_file
+                .as_ref()
+                .map(|f| f.with_file_name("quiet.json")),
+        );
         let engine = Self {
             config,
             link,
@@ -118,6 +125,7 @@ impl Engine {
                 last_sent: Instant::now(),
                 updating: None,
                 seen,
+                quiet,
             })),
             changes,
             link_events: Arc::new(bcast),
@@ -174,6 +182,9 @@ impl Engine {
                         }
                         if !changed.is_empty() { self.changed(); }
                     }
+                    if ticks.is_multiple_of(15) {
+                        self.quiet_tick().await;
+                    }
                     self.send_snapshot(false);
                 }
             }
@@ -190,8 +201,17 @@ impl Engine {
                         hello.proto
                     );
                 }
+                let ok = hello.compatible();
                 self.shared.lock().unwrap().puck = Some(PuckInfo { hello, port });
                 self.send_snapshot(true);
+                if ok {
+                    let me = self.clone();
+                    tokio::spawn(async move {
+                        // Let the link settle (it answers our HELLO first).
+                        tokio::time::sleep(Duration::from_millis(300)).await;
+                        me.full_levels().await;
+                    });
+                }
             }
             LinkEvent::Disconnected => {
                 let mut s = self.shared.lock().unwrap();
@@ -209,6 +229,9 @@ impl Engine {
                 let fx = {
                     let mut s = self.shared.lock().unwrap();
                     s.seen.saw(&ev.agent, now_ms());
+                    if !s.seen.enabled(&ev.agent) {
+                        return; // switched off (D-055): seen, but doesn't light the puck
+                    }
                     s.table.apply(&ev, now_ms())
                 };
                 log!("event {} {} {:?}", ev.agent, ev.session, ev.state);
@@ -285,7 +308,7 @@ impl Engine {
     }
 
     pub async fn status(&self) -> Value {
-        let (puck, sessions, snapshot, updating, agents) = {
+        let (puck, sessions, snapshot, updating, agents, quiet) = {
             let s = self.shared.lock().unwrap();
             (
                 s.puck.clone(),
@@ -293,6 +316,7 @@ impl Engine {
                 s.table.snapshot(),
                 s.updating.clone(),
                 s.seen.list(now_ms()),
+                s.quiet.status(),
             )
         };
         let puck_status = if puck.as_ref().is_some_and(|p| p.hello.compatible()) {
@@ -322,12 +346,124 @@ impl Engine {
             "sessions": sessions,
             // D-054: read-only; the user installs the plugins (guides at agents::SETUP_URL).
             "agents": agents,
+            "quiet": quiet,
             "setup_url": agents::SETUP_URL,
             "snapshot": snapshot.iter().map(|(id, st)| json!({"id": id, "state": st.as_str()})).collect::<Vec<_>>(),
         })
     }
 
     /// Turns the cloud link on or off (relay-api §3, D-030: opt-in).
+    /// D-055: brightness and volume are set once, on the puck's master levels. Each state's own
+    /// level is a share of the master (hn-usb/2 §5), so the app keeps them at 100. Only changed
+    /// fields are written (the puck saves to flash only on change).
+    pub async fn full_levels(&self) {
+        let Ok(all) = self.puck("GET all").await else {
+            return;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&all) else {
+            return;
+        };
+        for st in ["needs", "done", "working", "idle"] {
+            for f in ["brightness", "volume"] {
+                let key = format!("{st}.{f}");
+                let cur = match &v[&key] {
+                    Value::Number(n) => n.as_u64(),
+                    Value::String(s) => s.parse().ok(),
+                    _ => None, // idle has no volume
+                };
+                if cur.is_some_and(|c| c != 100) {
+                    match self.puck(format!("SET {key} 100")).await {
+                        Ok(_) => log!(
+                            "puck: {key} {} -> 100 (levels live on the master)",
+                            cur.unwrap()
+                        ),
+                        Err(e) => log!("puck: SET {key} failed: {e}"),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Switches an agent on or off (D-055). Off: its sessions stop lighting the puck at once.
+    pub fn agent_set(&self, id: &str, on: bool) -> Result<(), String> {
+        {
+            let mut s = self.shared.lock().unwrap();
+            s.seen.set_enabled(id, on)?;
+            if !on {
+                s.table.clear_agent(id);
+            }
+        }
+        log!("agent {id} {}", if on { "on" } else { "off" });
+        self.send_snapshot(true);
+        self.changed();
+        Ok(())
+    }
+
+    pub fn quiet_get(&self) -> quiet::Settings {
+        self.shared.lock().unwrap().quiet.settings()
+    }
+
+    /// Saves quiet hours and applies them at once.
+    pub async fn quiet_set(&self, q: quiet::Settings) -> Result<(), String> {
+        self.shared.lock().unwrap().quiet.set(q)?;
+        self.quiet_tick().await;
+        self.changed();
+        Ok(())
+    }
+
+    /// Enters or leaves quiet hours (checked every 15 s and on change).
+    async fn quiet_tick(&self) {
+        if !self.puck_ready() {
+            return;
+        }
+        let action = {
+            let s = self.shared.lock().unwrap();
+            s.quiet.due(quiet::local_minutes())
+        };
+        match action {
+            quiet::Action::None => {}
+            quiet::Action::Enter { mute_min } => {
+                let b = self
+                    .puck("GET brightness")
+                    .await
+                    .ok()
+                    .and_then(|r| quiet::level_of(&r, "brightness"));
+                let Some(b) = b else { return };
+                let dim = quiet::dimmed(b);
+                let _ = self.puck(format!("SET brightness {dim}")).await;
+                let _ = self.puck(format!("MUTE {mute_min}")).await;
+                self.shared.lock().unwrap().quiet.entered(b, dim);
+                log!("quiet hours: on (brightness {b} -> {dim}, muted {mute_min} min)");
+                self.changed();
+            }
+            quiet::Action::Leave { restore } => {
+                let now = self
+                    .puck("GET brightness")
+                    .await
+                    .ok()
+                    .and_then(|r| quiet::level_of(&r, "brightness"));
+                // Put the level back unless the user changed it meanwhile.
+                if let (Some((saved, dim)), Some(now)) = (restore, now) {
+                    if now == dim {
+                        let _ = self.puck(format!("SET brightness {saved}")).await;
+                    }
+                }
+                let muted = self.puck("STATUS").await.ok().and_then(|r| {
+                    serde_json::from_str::<Value>(&r).ok()?["muted"]
+                        .as_str()
+                        .map(String::from)
+                });
+                // Our timed mute (a number of minutes); "on" = the user's own mute: keep it.
+                if muted.is_some_and(|m| m != "on" && m != "off") {
+                    let _ = self.puck("MUTE 0").await;
+                }
+                self.shared.lock().unwrap().quiet.left();
+                log!("quiet hours: off");
+                self.changed();
+            }
+        }
+    }
+
     pub async fn cloud_set(&self, on: bool) -> Result<(), String> {
         let c = self.cloud.as_ref().ok_or("cloud link not available")?;
         c.set_enabled(on).await?;

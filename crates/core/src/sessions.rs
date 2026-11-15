@@ -191,6 +191,16 @@ impl Table {
         v
     }
 
+    /// Sends one agent's active sessions to idle (its switch was turned off).
+    pub fn clear_agent(&mut self, agent: &str) {
+        for s in self.sessions.values_mut() {
+            if s.agent == agent && matches!(s.state, State::Working | State::Needs) {
+                s.state = State::Idle;
+                s.reason = "agent switched off".into();
+            }
+        }
+    }
+
     /// Removes everything (e.g. "clear the puck").
     pub fn clear(&mut self) {
         for s in self.sessions.values_mut() {
