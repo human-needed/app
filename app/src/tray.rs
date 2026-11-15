@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Look {
@@ -99,6 +99,8 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
+    app.manage(crate::updater::TrayItem(update.clone()));
     let quit = MenuItem::with_id(app, "quit", "Quit HumanNeeded", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
@@ -110,6 +112,7 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
             &test,
             &mute,
             &PredefinedMenuItem::separator(app)?,
+            &update,
             &quit,
         ],
     )?;
@@ -136,6 +139,7 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                         let _ = e.puck(if on { "MUTE 60" } else { "MUTE 0" }).await;
                     });
                 }
+                "update" => crate::updater::tray_clicked(app),
                 "quit" => app.exit(0),
                 _ => {}
             }

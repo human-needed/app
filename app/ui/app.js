@@ -139,7 +139,14 @@ async function refresh() {
   let st;
   try { st = await invoke('status'); } catch (e) { showError(e); return; }
   const p = st.puck;
-  $('app-version').textContent = `App ${st.app.version}`;
+  const u = st.update || {};
+  let ver = `App ${st.app.version}`;
+  if (u.checking) ver += ' · checking for updates…';
+  else if (u.last) ver += ` · ${u.last}`;
+  $('app-version').textContent = ver;
+  $('auto-update').checked = !!u.auto;
+  $('app-update').classList.toggle('hidden', !u.ready);
+  $('app-update-text').textContent = u.ready ? `HumanNeeded ${u.ready} is ready.` : '';
   // Agents reach the app over local HTTP (D-047). If the port is taken, say so plainly.
   const h = st.http || {};
   $('http-note').classList.toggle('hidden', !h.error);
@@ -228,6 +235,9 @@ $('cloud-on').onchange = (ev) => {
   invoke('cloud_set', { on }).catch(showError).finally(() => { ev.target.disabled = false; refresh(); });
 };
 $('autostart').onchange = (ev) => invoke('autostart_set', { on: ev.target.checked }).catch(showError);
+$('auto-update').onchange = (ev) => invoke('update_auto', { on: ev.target.checked }).catch(showError);
+$('app-update-check').onclick = () => invoke('update_check').then(refresh).catch(showError);
+$('app-update-go').onclick = (ev) => { ev.target.disabled = true; invoke('update_install').catch(showError); };
 
 $('fw-check').onclick = async () => {
   $('update-note').textContent = 'Checking…';

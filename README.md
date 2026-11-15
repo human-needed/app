@@ -16,7 +16,7 @@ under a lease, so the light always clears itself if anything goes wrong.
 
 ## Test builds
 
-Pre-releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
+Releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
 `.github/workflows/release.yml` from a `v*` tag). They are **unsigned**, so the OS warns once.
 Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on Windows,
 `shasum -a 256 <file>` on macOS).
@@ -31,6 +31,22 @@ Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on
 Not yet on macOS: no Dock-less mode (it shows a Dock icon), and liveness for Codex/Cursor uses the
 2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
 untested there.
+
+### Auto-update
+
+From 0.9.0-beta.2 the app updates itself (Tauri updater). It checks
+`releases/latest/download/latest.json` 10 s after start and every 6 h (setting: "Check for app
+updates automatically", on by default), or when you pick **Check for updates** in the tray or the
+window. A new version downloads in the background and is only installed when you click
+**Restart to update**. Offline or failed checks are logged and retried in 30 min.
+
+Updates are signed with the project's updater key; the app refuses any package whose signature
+doesn't match the public key in `app/tauri.conf.json`. The release workflow signs with the
+`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repo secrets and publishes
+`latest.json`. **If that private key is lost, installed apps can never update again**; keep a backup.
+
+Testing locally (debug builds only): `HN_UPDATE_URL=<url of a latest.json>` overrides the endpoint,
+and `HN_UPDATE_TEST_INSTALL=1` installs as soon as the update is ready.
 
 ## Cloud chats (relay-api §3)
 
