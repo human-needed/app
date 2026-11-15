@@ -8,6 +8,7 @@
 //! - [`liveness`]: reads Claude's session files and checks processes.
 //! - [`procs`]: finds the agent process behind a hook's connection (Codex/Cursor liveness).
 //! - [`proxy`]: D-049 warning when Claude would send its hooks to a proxy.
+//! - [`quiet`]: quiet hours (D-055): sounds muted and the light dimmed in a daily window.
 //! - [`engine`]: the loop tying them together (session table → SNAP every 10 s / on change).
 //! - [`firmware`]: `latest.json` → SHA-256 → `BOOTSEL` → copy .uf2 to RPI-RP2.
 //! - [`agents`]: read-only per-agent status (D-054: the user installs the plugins).
@@ -24,6 +25,7 @@ pub mod log;
 pub mod paths;
 pub mod procs;
 pub mod proxy;
+pub mod quiet;
 
 pub use engine::{Config, Engine};
 pub use link::PuckTarget;
