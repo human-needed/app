@@ -1,269 +1,462 @@
-// HumanNeeded settings window. Talks only to the app (Tauri commands); the app owns the puck.
-// The light/sound form is built from the puck's own SCHEMA (same format as firmware 0.3.0).
+// HumanNeeded tray panel (D-055): a remote control for the puck. Talks only to the app (Tauri
+// commands); the app owns the puck. Lists (lights, sounds, durations) come from the puck's SCHEMA.
 'use strict';
 const $ = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 const listen = (ev, fn) => window.__TAURI__.event.listen(ev, fn);
 
-const COLORS = { needs: '#ff8800', working: '#3366ff', done: '#22cc55', idle: '#ffaa66' };
+const STATES = [
+  { id: 'working', name: 'Working' },
+  { id: 'needs', name: 'Needs you' },
+  { id: 'done', name: 'Done' },
+  { id: 'idle', name: 'Idle' },
+];
+// Firmware 2.0 defaults (settingsDefaults), for a state's "Default" button.
+const DEFAULTS = {
+  needs: { color: '#ffa62b', light: 'pulse', sound: 'call', duration: '0' },
+  done: { color: '#22e04a', light: 'pulse', sound: 'bright', duration: '3' },
+  working: { color: '#3366ff', light: 'spin', sound: 'none', duration: '0' },
+  idle: { color: '#ffd2a0', light: 'solid' },
+};
+const SWATCHES = ['#ff8a1f', '#ffcf3a', '#ff4d4d', '#ff5fb0', '#a26bff', '#4a78ff', '#2ec4d6', '#26c25a', '#ffffff'];
+const MAIN_LIGHTS = ['solid', 'breathe', 'pulse'];
+const FX_ICON = {
+  solid: '<path d="M1 6h32" stroke="currentColor" stroke-width="2"/>',
+  breathe: '<path d="M1 9c4 0 4-6 8-6s4 6 8 6 4-6 8-6 4 6 8 6" fill="none" stroke="currentColor" stroke-width="2"/>',
+  pulse: '<path d="M1 10h4l2-8 2 8h6l2-8 2 8h6l2-8 2 8h3" fill="none" stroke="currentColor" stroke-width="2"/>',
+};
+const AGENT_MARK = { claude: 'Cl', codex: 'Cx', cursor: 'Cu' };
+const AGENT_NAME = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' };
+const CLOUD_TEXT = {
+  off: 'Through the HumanNeeded relay',
+  no_account: 'Sign in to Claude on this computer first',
+  connecting: 'Connecting to the relay…',
+  connected: 'Connected; checking messages come through…',
+  working: 'Working through the HumanNeeded relay',
+  key_full: 'Three other computers use this account',
+  error: 'The relay refused this computer',
+};
 
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function showError(e) { $('error').textContent = e ? String(e) : ''; }
+let st = null;          // last status
+let cfg = {};           // puck settings (GET all)
+let schema = null;      // puck SCHEMA
+let view = 'v-home';
+let cur = null;         // state being edited
+let busy = false;       // a slider is being dragged
 
-// ---- settings form from SCHEMA ----
-function optionsOf(field, lists) {
-  const list = typeof field.options === 'string' ? lists[field.options] : field.options;
-  return (list || []).map((o) => (Array.isArray(o) ? o : [o, o]));
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function controlHtml(f, lists) {
-  const key = `data-key="${esc(f.key)}" aria-label="${esc(f.label)}"`;
-  const unit = f.unit ? ` data-unit="${esc(f.unit)}"` : '';
-  switch (f.type) {
-    case 'range':
-      return `<input type="range" ${key}${unit} min="${esc(f.min ?? 0)}" max="${esc(f.max ?? 100)}" step="${esc(f.step ?? 1)}"><span class="value"></span>`;
-    case 'select':
-      return `<select ${key}${unit}>${optionsOf(f, lists).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>`;
-    case 'color':
-      return `<input type="color" ${key}><span class="hex"></span>`;
-    case 'toggle':
-      return `<input type="checkbox" ${key}>`;
-    case 'number':
-      return `<input type="number" ${key}${unit} min="${esc(f.min ?? '')}" max="${esc(f.max ?? '')}" step="${esc(f.step ?? 1)}">`;
-    default:
-      return `<input type="text" ${key} maxlength="${esc(f.maxlength ?? 64)}">`;
-  }
+let tm;
+function toast(t) {
+  $('toast').textContent = t;
+  $('toast').classList.add('show');
+  clearTimeout(tm);
+  tm = setTimeout(() => $('toast').classList.remove('show'), 2400);
 }
-function fieldHtml(f, lists) {
-  const tip = f.tip ? ` <button class="tip" type="button" aria-label="About ${esc(f.label)}" data-tip="${esc(f.tip)}">?</button>` : '';
-  return `<div class="field"><span class="label">${esc(f.label)}${tip}</span><div class="control">${controlHtml(f, lists)}</div></div>`;
+function fail(e) { toast(String(e)); }
+
+// ---- the window follows its content ----
+function fit() {
+  requestAnimationFrame(() => {
+    const h = Math.ceil($('panel').getBoundingClientRect().height);
+    if (h > 0) invoke('panel_fit', { height: h }).catch(() => {});
+  });
 }
-function buildForm(schema) {
-  const lists = schema.lists || {};
-  $('groups').innerHTML = (schema.groups || []).map((g) => `
-    <section class="card">
-      <div class="card-head">
-        ${g.swatch ? `<span class="swatch" data-swatch="${esc(g.swatch)}"></span>` : ''}
-        <h2 class="grow">${esc(g.title)}</h2>
-        ${g.preview ? `<button type="button" data-preview="${esc(g.preview)}">Preview</button>` : ''}
-      </div>
-      ${g.desc ? `<p class="card-desc">${esc(g.desc)}</p>` : ''}
-      ${(g.fields || []).map((f) => fieldHtml(f, lists)).join('')}
-    </section>`).join('');
+function go(id, back) {
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('on', 'back'));
+  const v = $(id);
+  v.classList.add('on');
+  if (back) v.classList.add('back');
+  view = id;
+  fit();
 }
-function showValue(el) {
-  const label = el.nextElementSibling;
-  if (el.type === 'range' && label) label.textContent = el.value + (el.dataset.unit || '');
-  if (el.type === 'color') {
-    if (label) label.textContent = el.value.toUpperCase();
-    for (const s of document.querySelectorAll('[data-swatch]')) {
-      if (s.dataset.swatch === el.dataset.key) s.style.background = el.value;
-    }
-  }
+function homeView() { return st && st.puck && st.puck.connected ? 'v-home' : 'v-empty'; }
+
+// ---- puck data ----
+const val = (k) => (cfg[k] === undefined ? undefined : String(cfg[k]));
+function list(name) {
+  const l = (schema && schema.lists && schema.lists[name]) || [];
+  return l.map((o) => (Array.isArray(o) ? o : [o, o]));
 }
-function fillForm(settings) {
-  for (const el of document.querySelectorAll('[data-key]')) {
-    let value = settings[el.dataset.key];
-    if (value === undefined) continue;
-    if (el.type === 'checkbox') { el.checked = value === true || value === 1 || value === '1'; continue; }
-    value = String(value);
-    if (el.type === 'color') value = value.toLowerCase();
-    if (el.tagName === 'SELECT' && ![...el.options].some((o) => o.value === value)) {
-      el.add(new Option(el.dataset.unit ? `${value} ${el.dataset.unit}` : value, value));
-    }
-    el.value = value;
-    showValue(el);
-  }
+function label(name, v) {
+  const o = list(name).find(([k]) => k === v);
+  return o ? o[1].replace(/\s*\(.*\)$/, '') : v;
 }
-let savedTimer;
-async function onSettingChange(ev) {
-  const el = ev.target;
-  if (!el.dataset.key) return;
-  const value = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+async function loadPuck() {
+  if (!st || !st.puck || !st.puck.compatible) return;
   try {
-    await invoke('puck_set', { key: el.dataset.key, value });
-    $('saved').classList.add('show');
-    clearTimeout(savedTimer);
-    savedTimer = setTimeout(() => $('saved').classList.remove('show'), 1200);
-    showError('');
-  } catch (e) { showError(`Couldn't save: ${e}`); }
+    if (!schema) schema = await invoke('puck_schema');
+    cfg = await invoke('puck_settings');
+  } catch (e) { return; }
+  renderHome();
+  if (view === 'v-state' && cur) renderState();
 }
-$('groups').addEventListener('input', (ev) => showValue(ev.target));
-$('groups').addEventListener('change', onSettingChange);
-$('groups').addEventListener('click', async (ev) => {
-  const p = ev.target.dataset && ev.target.dataset.preview;
-  if (!p) return;
-  try { await invoke('puck_action', { action: 'test', arg: p }); } catch (e) { showError(e); }
+async function set(key, value) {
+  cfg[key] = value;
+  try { await invoke('puck_set', { key, value: String(value) }); } catch (e) { fail(e); }
+}
+async function act(action, arg) {
+  try { await invoke('puck_action', { action, arg }); } catch (e) { fail(e); }
+}
+
+// ---- home ----
+function problem() {
+  const h = st.http || {};
+  if (h.error) {
+    return {
+      text: "Agents can't reach the app",
+      fix: `Another program is using port ${h.port || 24816} (${h.error}). Close it or restart your computer; HumanNeeded keeps trying.`,
+    };
+  }
+  if (st.proxy && st.proxy.problem) {
+    return { text: 'A proxy blocks your agents', fix: st.proxy.problem, code: st.proxy.fix, btn: 'Copy' };
+  }
+  if (st.puck.connected && !st.puck.compatible) {
+    return { text: 'Firmware too old for this app', fix: 'Update the puck to use it with this app. Settings are kept.', btn: 'Update firmware' };
+  }
+  return null;
+}
+function paintRange(r) {
+  const p = ((r.value - r.min) / (r.max - r.min)) * 100;
+  r.style.setProperty('--p', `${p}%`);
+  const v = r.parentNode.querySelector('.v');
+  if (v) v.textContent = `${Math.round(r.value)}%`;
+}
+function tileText(id) {
+  const light = val(`${id}.light`);
+  if (light === undefined) return '';
+  if (light === 'off') return 'Off';
+  const snd = val(`${id}.sound`);
+  return label('light', light) + (snd && snd !== 'none' ? ` · ${label('sound', snd).toLowerCase()}` : '');
+}
+function renderHome() {
+  if (!st) return;
+  const p = st.puck;
+  const pr = problem();
+  const shown = String((p && p.shown) || 'idle').replace(/^test:/, '');
+  $('dev-ring').style.color = val(`${shown}.color`) || 'var(--hn-faint)';
+  $('dev-st').style.setProperty('--c', pr ? 'var(--hn-problem)' : 'var(--hn-ok)');
+  $('dev-text').textContent = pr ? pr.text : 'Connected';
+  $('fix').hidden = !pr;
+  if (pr) {
+    $('fix-text').textContent = pr.fix;
+    $('fix-code').hidden = !pr.code;
+    $('fix-code').textContent = pr.code || '';
+    $('fix-btn').hidden = !pr.btn;
+    $('fix-btn').textContent = pr.btn || '';
+  }
+  if (!busy) {
+    if (val('brightness') !== undefined) $('bright').value = val('brightness');
+    if (val('volume') !== undefined) $('vol').value = val('volume');
+  }
+  paintRange($('bright'));
+  paintRange($('vol'));
+  const m = (p.status && p.status.muted) || 'off';
+  const muted = m !== 'off';
+  $('mute').setAttribute('aria-pressed', muted);
+  $('mute').setAttribute('aria-label', muted ? 'Unmute the puck' : 'Mute the puck');
+  $('mute-ic').setAttribute('href', muted ? '#i-volx' : '#i-vol');
+  $('volrow').classList.toggle('off', muted);
+  const q = st.quiet || {};
+  let note = '';
+  if (q.active) note = `Quiet hours until ${q.to}: dimmed and muted.`;
+  else if (muted && m !== 'on') note = `Muted for ${m} more min.`;
+  $('lv-note').hidden = !note;
+  $('lv-note').textContent = note;
+  $('tiles').innerHTML = STATES.map((s) => {
+    const off = val(`${s.id}.light`) === 'off';
+    return `<button type="button" class="tile${off ? ' off' : ''}" data-state="${s.id}" style="--c:${esc(val(`${s.id}.color`) || 'var(--hn-' + s.id + ')')}">
+      <span class="lamp"></span><b>${esc(s.name)}</b><small>${esc(tileText(s.id))}</small></button>`;
+  }).join('');
+}
+let levelTimer;
+function level(key, el) {
+  paintRange(el);
+  busy = true;
+  clearTimeout(levelTimer);
+  levelTimer = setTimeout(async () => { await set(key, el.value); busy = false; }, 120);
+}
+$('bright').addEventListener('input', (e) => level('brightness', e.target));
+$('vol').addEventListener('input', (e) => level('volume', e.target));
+$('mute').onclick = async () => {
+  const muted = $('mute').getAttribute('aria-pressed') === 'true';
+  await act('mute', muted ? '0' : 'on');
+  refresh();
+};
+$('fix-btn').onclick = async () => {
+  const pr = problem();
+  if (!pr) return;
+  if (pr.btn === 'Copy') {
+    try { await navigator.clipboard.writeText(pr.code); toast('Copied'); } catch (e) { fail(e); }
+  } else {
+    go('v-settings');
+    updateFirmware();
+  }
+};
+
+// ---- state page ----
+function renderState() {
+  const s = cur;
+  const g = schema && (schema.groups || []).find((x) => x.id === s.id);
+  $('st-title').textContent = s.name;
+  $('st-desc').textContent = g ? g.desc : '';
+  const light = val(`${s.id}.light`) || 'solid';
+  const on = light !== 'off';
+  $('st-on').setAttribute('aria-checked', on);
+  $('st-body').classList.toggle('dim', !on);
+  const lights = MAIN_LIGHTS.slice();
+  if (on && !lights.includes(light)) lights.push(light);
+  $('fx').innerHTML = lights.map((l) => `<button type="button" data-fx="${esc(l)}" aria-pressed="${l === light}">
+    <svg viewBox="0 0 34 12">${FX_ICON[l] || '<circle cx="17" cy="6" r="4" fill="currentColor"/>'}</svg>${esc(label('light', l))}</button>`).join('');
+  const color = (val(`${s.id}.color`) || '').toLowerCase();
+  $('swatches').innerHTML = SWATCHES.map((c) => `<button type="button" style="--c:${c}" data-c="${c}" aria-label="Colour ${c}" aria-pressed="${c === color}"></button>`).join('')
+    + `<button type="button" class="custom" id="custom" aria-label="Pick any colour" aria-pressed="${!SWATCHES.includes(color)}"></button><input type="color" id="picker" value="${esc(color || '#ffffff')}" tabindex="-1">`;
+  const hasSound = val(`${s.id}.sound`) !== undefined;
+  $('st-sound-f').hidden = !hasSound;
+  if (hasSound) {
+    $('st-sound').innerHTML = list('sound').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
+    $('st-sound').value = val(`${s.id}.sound`);
+  }
+  $('st-dur-f').hidden = s.id !== 'done';
+  if (s.id === 'done') {
+    $('st-dur').innerHTML = list('duration').filter(([k]) => k !== '0').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
+    $('st-dur').value = val('done.duration');
+  }
+  fit();
+}
+function lastLight(id) {
+  try { return localStorage.getItem(`hn.light.${id}`); } catch (e) { return null; }
+}
+function rememberLight(id, l) {
+  try { localStorage.setItem(`hn.light.${id}`, l); } catch (e) { /* not kept */ }
+}
+$('st-on').onclick = async () => {
+  const id = cur.id;
+  const light = val(`${id}.light`);
+  if (light && light !== 'off') {
+    rememberLight(id, light);
+    await set(`${id}.light`, 'off');
+  } else {
+    await set(`${id}.light`, lastLight(id) || DEFAULTS[id].light);
+  }
+  renderState();
+};
+$('fx').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-fx]');
+  if (!b) return;
+  await set(`${cur.id}.light`, b.dataset.fx);
+  renderState();
+});
+$('swatches').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.id === 'custom') { $('picker').click(); return; }
+  await set(`${cur.id}.color`, b.dataset.c);
+  renderState();
+});
+$('swatches').addEventListener('change', async (e) => {
+  if (e.target.id !== 'picker') return;
+  await set(`${cur.id}.color`, e.target.value);
+  renderState();
+});
+$('st-sound').onchange = (e) => set(`${cur.id}.sound`, e.target.value);
+$('st-dur').onchange = (e) => set('done.duration', e.target.value);
+$('st-prev').onclick = async () => {
+  await act('test', cur.id);
+  toast(`Playing "${cur.name}" on your puck`);
+};
+$('st-reset').onclick = async () => {
+  const d = DEFAULTS[cur.id];
+  for (const [k, v] of Object.entries(d)) {
+    if (val(`${cur.id}.${k}`) !== undefined && val(`${cur.id}.${k}`) !== v) await set(`${cur.id}.${k}`, v);
+  }
+  renderState();
+  toast('Back to default');
+};
+
+// ---- settings ----
+function sw(id, on, disabled) {
+  return `<button type="button" class="sw" role="switch" aria-checked="${!!on}" data-agent="${esc(id)}" aria-label="${esc(AGENT_NAME[id] || id)}"${disabled ? ' disabled' : ''}></button>`;
+}
+function renderSettings() {
+  if (!st) return;
+  const rows = (st.agents || []).map((a) => {
+    const right = a.state === 'connected'
+      ? sw(a.id, a.enabled)
+      : '<button type="button" class="btn small" data-guide>Set up<svg class="i" style="width:13px;height:13px"><use href="#i-ext"/></svg></button>';
+    const small = a.state === 'connected' ? (a.enabled ? '' : "Doesn't light the puck") : 'Not set up yet';
+    return `<div class="row"><span class="agentmark">${esc(AGENT_MARK[a.id] || a.id.slice(0, 2))}</span><span class="gr">${esc(AGENT_NAME[a.id] || a.name)}${small ? `<small>${esc(small)}</small>` : ''}</span>${right}</div>`;
+  });
+  const c = st.cloud;
+  if (c) {
+    const text = c.enabled ? (c.error || CLOUD_TEXT[c.state] || '') : CLOUD_TEXT.off;
+    rows.splice(2, 0, `<div class="row"><span class="agentmark"><svg class="i" style="width:14px;height:14px"><use href="#i-cloud"/></svg></span><span class="gr">Cowork<small>${esc(text)}</small></span>${sw('claude-cloud', c.enabled)}</div>`);
+  }
+  $('agents').innerHTML = rows.join('');
+
+  const q = st.quiet || {};
+  $('q-on').setAttribute('aria-checked', !!q.enabled);
+  if (document.activeElement !== $('q-from') && q.from) $('q-from').value = q.from;
+  if (document.activeElement !== $('q-to') && q.to) $('q-to').value = q.to;
+
+  if (!fwBusy) {
+    const p = st.puck;
+    $('fw-s').textContent = p.connected ? (fwNote ? `${p.fw} · ${fwNote}` : p.fw) : 'Plug in your puck to check its firmware';
+    $('fw-check').disabled = !p.connected;
+  }
+
+  const u = st.update || {};
+  $('auto-update').setAttribute('aria-checked', !!u.auto);
+  let ver = `Version ${st.app.version}`;
+  if (u.checking) ver += ' · checking…';
+  else if (u.last) ver += ` · ${u.last}`;
+  $('app-ver').textContent = ver;
+  $('app-restart').hidden = !u.ready;
+  $('app-restart').textContent = u.ready ? `Restart to update to ${u.ready}` : '';
+
+  const p = st.puck || {};
+  const kv = [];
+  if (p.serial) kv.push(['Serial', p.serial]);
+  if (p.board) kv.push(['Board', p.board]);
+  if (p.port) kv.push(['USB', p.port]);
+  kv.push(['Agent port', (st.http && st.http.port) || '']);
+  $('kv').innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
+  $('restart').disabled = !p.connected;
+  if (!$('danger').innerHTML) resetButton();
+  fit();
+}
+$('agents').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-agent]');
+  if (!b || b.disabled) return;
+  const on = b.getAttribute('aria-checked') !== 'true';
+  b.disabled = true;
+  try {
+    if (b.dataset.agent === 'claude-cloud') await invoke('cloud_set', { on });
+    else await invoke('agent_set', { id: b.dataset.agent, on });
+  } catch (err) { fail(err); }
+  refresh();
+});
+async function saveQuiet() {
+  const enabled = $('q-on').getAttribute('aria-checked') === 'true';
+  try { await invoke('quiet_set', { enabled, from: $('q-from').value || '22:00', to: $('q-to').value || '08:00' }); } catch (e) { fail(e); }
+  refresh();
+}
+$('q-on').onclick = () => {
+  $('q-on').setAttribute('aria-checked', $('q-on').getAttribute('aria-checked') !== 'true');
+  saveQuiet();
+};
+$('q-from').onchange = saveQuiet;
+$('q-to').onchange = saveQuiet;
+
+let fwNote = '';
+let fwBusy = false;
+$('fw-check').onclick = async () => {
+  fwBusy = true;
+  $('fw-s').textContent = `${st.puck.fw} · checking…`;
+  $('fw-go').hidden = true;
+  try {
+    const a = await invoke('fw_check');
+    if (!a.latest) fwNote = 'no firmware published yet';
+    else if (a.newer) {
+      fwNote = `${a.latest.version} is available`;
+      $('fw-go').hidden = false;
+      $('fw-go').textContent = `Update to ${a.latest.version}`;
+    } else fwNote = 'up to date';
+  } catch (e) { fwNote = `couldn't check: ${e}`; }
+  fwBusy = false;
+  renderSettings();
+};
+async function updateFirmware() {
+  fwBusy = true;
+  $('fw-go').disabled = true;
+  $('fw-check').disabled = true;
+  $('fw-s').textContent = 'Updating firmware, about a minute. Settings are kept.';
+  try {
+    const v = await invoke('fw_update');
+    fwNote = '';
+    $('fw-go').hidden = true;
+    toast(`Updated to ${v}`);
+    schema = null;
+  } catch (e) { fwNote = `update failed: ${e}`; }
+  fwBusy = false;
+  $('fw-go').disabled = false;
+  refresh();
+}
+$('fw-go').onclick = updateFirmware;
+listen('fw-progress', (ev) => { if (fwBusy) $('fw-s').textContent = ev.payload; });
+
+$('autostart').onclick = async () => {
+  const on = $('autostart').getAttribute('aria-checked') !== 'true';
+  try { await invoke('autostart_set', { on }); $('autostart').setAttribute('aria-checked', on); } catch (e) { fail(e); }
+};
+$('auto-update').onclick = async () => {
+  const on = $('auto-update').getAttribute('aria-checked') !== 'true';
+  try { await invoke('update_auto', { on }); } catch (e) { fail(e); }
+  refresh();
+};
+$('app-restart').onclick = (e) => { e.target.disabled = true; invoke('update_install').catch(fail); };
+$('restart').onclick = async () => { await act('reboot'); toast('Restarting the puck'); };
+$('clear').onclick = async () => { await invoke('clear_sessions'); toast('Light cleared'); refresh(); };
+$('log').onclick = () => invoke('open_log').catch(fail);
+$('adv').addEventListener('toggle', fit);
+function resetButton() {
+  $('danger').innerHTML = '<button type="button" class="btn red" data-reset>Reset all settings</button>';
+  fit();
+}
+$('danger').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-reset]')) {
+    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Reset the puck\'s lights and sounds to their defaults? Agents, quiet hours and app settings stay.</p><div class="btns"><button type="button" class="btn red" data-yes>Reset</button><button type="button" class="btn" data-no>Cancel</button></div>';
+    fit();
+  } else if (e.target.closest('[data-yes]')) {
+    await act('reset');
+    toast('Settings reset');
+    resetButton();
+    loadPuck();
+  } else if (e.target.closest('[data-no]')) resetButton();
+});
+
+// ---- navigation ----
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  const g = t.closest('[data-go]');
+  if (g) { if (g.dataset.go === 'v-settings') renderSettings(); go(g.dataset.go); return; }
+  if (t.closest('[data-back]')) { renderHome(); go(homeView(), true); return; }
+  if (t.closest('[data-guide]')) { invoke('open_setup_guide').catch(fail); return; }
+  const tile = t.closest('[data-state]');
+  if (tile) {
+    cur = STATES.find((s) => s.id === tile.dataset.state);
+    go('v-state');
+    renderState();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (view === 'v-home' || view === 'v-empty') invoke('panel_hide');
+  else { renderHome(); go(homeView(), true); }
 });
 
 // ---- status ----
-let formFor = null; // serial+fw the form was built for
-async function loadForm(puck) {
-  const id = `${puck.serial}/${puck.fw}`;
-  if (formFor === id) return;
-  try {
-    const [schema, settings] = await Promise.all([invoke('puck_schema'), invoke('puck_settings')]);
-    buildForm(schema);
-    fillForm(settings);
-    formFor = id;
-    $('settings').classList.remove('hidden');
-  } catch (e) { showError(`Couldn't read the puck's settings: ${e}`); }
-}
-function ago(ms) {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  return `${Math.round(s / 3600)} h ago`;
-}
-const AGENT_NAMES = { claude: 'Claude', 'claude-cloud': 'Claude (cloud)', codex: 'Codex', cursor: 'Cursor' };
-const CLOUD_TEXT = {
-  off: '',
-  no_account: '',
-  connecting: 'Connecting to the relay…',
-  connected: 'Connected; checking that messages come through…',
-  working: 'Working: cloud chats will light your puck.',
-  key_full: '',
-  error: '',
-};
-function renderSessions(sessions) {
-  const shown = sessions.filter((s) => s.state === 'working' || s.state === 'needs' || Date.now() - s.last_seen < 3600e3)
-    .filter((s) => s.state !== 'ended');
-  $('sessions').innerHTML = shown.map((s) => `
-    <li><span class="pill ${esc(s.state)}">${esc(s.state === 'needs' ? 'needs you' : s.state)}</span>
-      <span class="grow">${esc(AGENT_NAMES[s.agent] || s.agent)} <span class="muted mono">${esc(s.session.slice(0, 8))}</span></span>
-      <span class="muted" title="${esc(s.reason)}">${esc(ago(s.last_seen))}</span></li>`).join('');
-}
+let wasConnected = null;
 async function refresh() {
-  let st;
-  try { st = await invoke('status'); } catch (e) { showError(e); return; }
-  const p = st.puck;
-  const u = st.update || {};
-  let ver = `App ${st.app.version}`;
-  if (u.checking) ver += ' · checking for updates…';
-  else if (u.last) ver += ` · ${u.last}`;
-  $('app-version').textContent = ver;
-  $('auto-update').checked = !!u.auto;
-  $('app-update').classList.toggle('hidden', !u.ready);
-  $('app-update-text').textContent = u.ready ? `HumanNeeded ${u.ready} is ready.` : '';
-  // Agents reach the app over local HTTP (D-047). If the port is taken, say so plainly.
-  const h = st.http || {};
-  $('http-note').classList.toggle('hidden', !h.error);
-  $('http-note').textContent = h.error
-    ? `Agents can't reach HumanNeeded: ${h.error}. Close that program or restart your computer; HumanNeeded keeps retrying.`
-    : '';
-  const c = st.cloud;
-  $('cloud-card').classList.toggle('hidden', !c);
-  if (c) {
-    if (document.activeElement !== $('cloud-on')) $('cloud-on').checked = !!c.enabled;
-    $('cloud-status').textContent = c.enabled ? (c.error || CLOUD_TEXT[c.state] || '') : '';
+  try { st = await invoke('status'); } catch (e) { return; }
+  const connected = !!(st.puck && st.puck.connected);
+  if (connected !== wasConnected) {
+    wasConnected = connected;
+    if (connected) await loadPuck();
+    if (view === 'v-home' || view === 'v-empty') go(homeView());
+    if (view === 'v-state' && !connected) go(homeView(), true);
   }
-  // D-049: with a proxy set, Claude sends its hooks to the proxy unless NO_PROXY has 127.0.0.1.
-  const px = st.proxy;
-  $('proxy-note').classList.toggle('hidden', !px);
-  $('proxy-problem').textContent = px ? px.problem : '';
-  $('proxy-fix').textContent = px ? px.fix : '';
-  $('http-info').textContent = h.port ? `Agent events: http://127.0.0.1:${h.port}${h.listening ? '' : ' (not listening)'}` : '';
-  let shown = 'off';
-  if (!p.connected) {
-    $('puck-title').textContent = 'Puck not connected';
-    $('puck-detail').textContent = 'Plug your puck into a USB port.';
-    $('device').textContent = 'Not connected.';
-    $('settings').classList.add('hidden');
-    formFor = null;
-  } else if (!p.compatible) {
-    $('puck-title').textContent = 'Your puck needs a firmware update';
-    $('puck-detail').textContent = `Firmware ${p.fw} is too old for this app.`;
-    $('device').textContent = `Firmware ${p.fw} · ${p.serial} · ${p.port}`;
-  } else {
-    const snap = st.snapshot;
-    const needs = snap.filter((e) => e.state === 'needs').length;
-    const working = snap.filter((e) => e.state === 'working').length;
-    shown = p.shown || (needs ? 'needs' : working ? 'working' : 'idle');
-    const words = [];
-    if (needs) words.push(`${needs} need${needs > 1 ? '' : 's'} you`);
-    if (working) words.push(`${working} working`);
-    $('puck-title').textContent = words.length ? words.join(', ') : 'All quiet';
-    const muted = p.status && p.status.muted;
-    $('puck-detail').textContent = muted && muted !== 'off'
-      ? (muted === 'on' ? 'Sounds muted.' : `Sounds muted for ${muted} more min.`) : 'Connected.';
-    $('device').textContent = `Firmware ${p.fw} · ${p.board} · ${p.serial} · ${p.port}`;
-    loadForm(p);
-  }
-  if (p.updating) $('puck-detail').textContent = `Updating firmware: ${p.updating}`;
-  const base = String(shown).replace(/^test:/, '');
-  $('light').style.background = COLORS[base] || 'transparent';
-  $('light').style.boxShadow = COLORS[base] ? `0 0 18px ${COLORS[base]}` : '';
-  renderSessions(st.sessions || []);
-  renderAgents(st.agents || []);
+  renderHome();
+  if (view === 'v-settings') renderSettings();
 }
 
-// D-054: read-only. "Connected" = an event from that agent arrived in the last 7 days.
-function renderAgents(list) {
-  $('agents').innerHTML = list.map((a) => {
-    const right = a.state === 'connected'
-      ? '<span class="ok">Connected</span>'
-      : '<span class="muted">Not set up</span>';
-    return `<li><span class="grow">${esc(a.name)}</span>${right}</li>`;
-  }).join('');
-}
-$('setup-guide').onclick = (ev) => {
-  ev.preventDefault();
-  invoke('open_setup_guide').catch(showError);
-};
-
-// ---- buttons ----
-async function act(action, arg) {
-  try { showError(''); await invoke('puck_action', { action, arg }); } catch (e) { showError(e); }
-  refresh();
-}
-$('test').onclick = () => act('test', 'needs');
-$('mute').onchange = (ev) => act('mute', ev.target.value || '0');
-$('restart').onclick = () => act('reboot');
-$('reset').onclick = async () => {
-  if (!confirm('Reset all light and sound settings to their defaults?')) return;
-  await act('reset');
-  formFor = null;
-  refresh();
-};
-$('clear').onclick = async () => { await invoke('clear_sessions'); refresh(); };
-$('log').onclick = () => invoke('open_log').catch(showError);
-$('cloud-on').onchange = (ev) => {
-  const on = ev.target.checked;
-  ev.target.disabled = true;
-  invoke('cloud_set', { on }).catch(showError).finally(() => { ev.target.disabled = false; refresh(); });
-};
-$('autostart').onchange = (ev) => invoke('autostart_set', { on: ev.target.checked }).catch(showError);
-$('auto-update').onchange = (ev) => invoke('update_auto', { on: ev.target.checked }).catch(showError);
-$('app-update-check').onclick = () => invoke('update_check').then(refresh).catch(showError);
-$('app-update-go').onclick = (ev) => { ev.target.disabled = true; invoke('update_install').catch(showError); };
-
-$('fw-check').onclick = async () => {
-  $('update-note').textContent = 'Checking…';
-  try {
-    const a = await invoke('fw_check');
-    if (!a.latest) $('update-note').textContent = 'No firmware is published for this puck yet.';
-    else if (a.newer) {
-      $('update-note').textContent = `Firmware ${a.latest.version} is available (you have ${a.current}).`;
-      $('fw-update').classList.remove('hidden');
-    } else $('update-note').textContent = `Up to date (${a.current}).`;
-  } catch (e) { $('update-note').textContent = `Couldn't check: ${e}`; }
-};
-$('fw-update').onclick = async () => {
-  $('fw-update').disabled = true;
-  try {
-    const v = await invoke('fw_update');
-    $('update-note').textContent = `Updated to ${v}. Your settings are kept.`;
-    $('fw-update').classList.add('hidden');
-    formFor = null;
-  } catch (e) { $('update-note').textContent = `Update failed: ${e}`; }
-  $('fw-update').disabled = false;
-  refresh();
-};
-listen('fw-progress', (ev) => { $('update-note').textContent = ev.payload; });
 listen('changed', () => refresh());
-
-invoke('autostart_get').then((on) => { $('autostart').checked = on; });
-refresh();
-setInterval(refresh, 5000);
+listen('panel-shown', () => {
+  // Opening the panel starts from the puck, with fresh values.
+  go(homeView());
+  refresh().then(loadPuck);
+});
+invoke('autostart_get').then((on) => $('autostart').setAttribute('aria-checked', !!on)).catch(() => {});
+refresh().then(() => go(homeView()));
+setInterval(() => { if (!document.hidden) refresh(); }, 5000);

@@ -12,7 +12,7 @@ under a lease, so the light always clears itself if anything goes wrong.
 | `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, per-agent status, proxy check. `hnd` = headless app |
 | `crates/cli` | `hn`: **dev and test tool only** (talks to the app over a named pipe / Unix socket; used by the e2e tests). Agents no longer use it (app-events 2.0) and it isn't shipped |
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
-| `app` | Tauri tray app + settings window (form built from the puck's `SCHEMA`) |
+| `app` | Tauri tray app: tray / menu-bar icon and one panel (D-055); theme tokens in `app/ui/tokens.css` |
 
 ## Test builds
 
@@ -28,16 +28,34 @@ Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on
   Anyway** (at the bottom), then open it again. On older macOS, right-click the app → **Open** also
   works.
 
-Not yet on macOS: no Dock-less mode (it shows a Dock icon), and liveness for Codex/Cursor uses the
+Not yet on macOS: liveness for Codex/Cursor uses the
 2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
 untested there.
+
+### Tray panel (D-055)
+
+No main window. Left-click the tray / menu-bar icon for the panel (it closes when you click
+elsewhere); right-click for **Mute for 1 hour** and **Quit**. The icon is a ring in the colour the
+puck shows, with a grey dot when muted and a red dot when something needs fixing.
+
+- Home: the puck's line ("Puck · Connected", or the problem with its fix), master brightness and
+  volume with one mute button, and four state tiles (light, colour, sound, "stay on for" for
+  Done, Default, Preview on puck). Unplugged: only "Plug in your puck".
+- Settings: agents that light the puck (per-agent switch; Cowork = the cloud link), quiet hours,
+  firmware check/update, start at sign-in, auto-update, Advanced.
+- Per-state brightness/volume are not in the UI: the app keeps them at 100 (a share of the master
+  level, hn-usb/2 §5), so the two master sliders are the only levels.
+- Quiet hours: between From and To (local time) the app mutes the puck and dims it to a quarter of
+  its brightness, then puts the level back (unless you changed it). Kept in `quiet.json`.
+- Agent switches are kept in `agent-switches.json`; a switched-off agent is still shown as
+  connected but its events don't light the puck.
+- Fonts: Geist and Geist Mono, bundled (`app/ui/fonts`, SIL OFL 1.1).
 
 ### Auto-update
 
 From 0.9.0-beta.2 the app updates itself (Tauri updater). It checks
 `releases/latest/download/latest.json` 10 s after start and every 6 h (setting: "Check for app
-updates automatically", on by default), or when you pick **Check for updates** in the tray or the
-window. A new version downloads in the background and is only installed when you click
+updates automatically" in the panel's Settings, on by default). A new version downloads in the background and is only installed when you click
 **Restart to update**. Offline or failed checks are logged and retried in 30 min.
 
 Updates are signed with the project's updater key; the app refuses any package whose signature
@@ -91,7 +109,7 @@ Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none
 ## For agent integrations (app-events 2.0)
 
 The user installs each agent's plugin (guides: https://human-needed.com/start/, D-054). The
-window only shows **Connected** for an agent that sent an event in the last 7 days (kept in
+panel only shows **Connected** for an agent that sent an event in the last 7 days (kept in
 `agents.json` in the data folder), else **Not set up**.
 
 Post each hook's JSON to the app (D-047), with `Content-Type: application/json`:

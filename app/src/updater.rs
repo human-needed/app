@@ -1,10 +1,9 @@
 //! App auto-update (Tauri updater plugin, signed with the project's updater key).
 //!
-//! - Checks 10 s after start and then every 6 h when automatic checks are on (default), plus
-//!   "Check for updates" in the tray and the window.
+//! - Checks 10 s after start and then every 6 h when automatic checks are on (default).
 //! - A found update is downloaded in the background and its signature verified (the plugin
-//!   refuses a package that doesn't match the public key in tauri.conf). Then the tray and the
-//!   window offer "Restart to update". Nothing restarts on its own.
+//!   refuses a package that doesn't match the public key in tauri.conf). Then the panel's
+//!   Settings offer "Restart to update". Nothing restarts on its own.
 //! - Offline or any error: logged only; tried again in 30 min.
 //!
 //! Debug builds only (local end-to-end tests): `HN_UPDATE_URL` points the check at another
@@ -14,8 +13,7 @@ use hn_engine::{log, paths, Engine};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::menu::MenuItem;
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Notify;
 
@@ -40,9 +38,6 @@ pub struct Updates {
     pending: Mutex<Option<(Update, Vec<u8>)>>,
     wake: Notify,
 }
-
-/// The tray's update item (text changes when an update is ready).
-pub struct TrayItem(pub MenuItem<Wry>);
 
 pub fn auto_enabled() -> bool {
     let path = paths::data_dir().join("app-settings.json");
@@ -148,9 +143,6 @@ async fn check(app: &AppHandle, u: &Updates) -> Result<(), String> {
         s.ready = Some(version.clone());
         s.last = None;
     }
-    if let Some(item) = app.try_state::<TrayItem>() {
-        let _ = item.0.set_text(format!("Restart to update to {version}"));
-    }
     #[cfg(debug_assertions)]
     if std::env::var_os("HN_UPDATE_TEST_INSTALL").is_some() {
         let app = app.clone();
@@ -178,17 +170,4 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         log!("update: install failed: {e}");
     }
     app.restart();
-}
-
-/// The tray's update item was clicked.
-pub fn tray_clicked(app: &AppHandle) {
-    let u = app.state::<Arc<Updates>>().inner().clone();
-    if u.status().ready.is_some() {
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = install(&app).await;
-        });
-    } else {
-        u.check_now();
-    }
 }

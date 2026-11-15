@@ -1,19 +1,24 @@
-//! HumanNeeded tray app (D-027, D-031): one per user, starts at login, the only writer to the
-//! puck. The engine (hn-engine) does the work; this file is the tray, the settings window and
-//! the commands the window calls.
+//! HumanNeeded tray app (D-027, D-031, D-055): one per user, starts at login, the only writer to
+//! the puck. Tray only: no main window, one panel that opens from the tray / menu-bar icon. The
+//! engine (hn-engine) does the work; this file wires the tray, the panel and the commands the
+//! panel calls.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod hn_install;
+mod panel;
 mod tray;
 mod updater;
 
-use hn_engine::{agents, log, paths, Config, Engine};
+use hn_engine::{agents, log, paths, quiet, Config, Engine};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 type R<T> = Result<T, String>;
+
+/// The panel changed a puck setting: the tray re-reads the colours.
+pub static COLOURS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 fn json_reply(r: R<String>) -> R<Value> {
     let line = r?;
@@ -66,8 +71,9 @@ fn safe_token(s: &str) -> R<&str> {
 async fn puck_set(engine: State<'_, Engine>, key: String, value: String) -> R<()> {
     engine
         .puck(format!("SET {} {}", safe_token(&key)?, safe_token(&value)?))
-        .await
-        .map(|_| ())
+        .await?;
+    COLOURS_CHANGED.notify_one();
+    Ok(())
 }
 
 #[tauri::command]
@@ -77,7 +83,13 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
             format!("TEST {st}")
         }
         ("mute", Some(m)) => format!("MUTE {}", safe_token(m)?),
-        ("reset", None) => "RESET".into(),
+        ("reset", None) => {
+            engine.puck("RESET").await?;
+            // Levels live on the master (D-055): put the per-state ones back to 100.
+            engine.full_levels().await;
+            COLOURS_CHANGED.notify_one();
+            return Ok(());
+        }
         ("reboot", None) => "REBOOT".into(),
         _ => return Err("unknown action".into()),
     };
@@ -87,6 +99,32 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
 #[tauri::command]
 async fn cloud_set(engine: State<'_, Engine>, on: bool) -> R<()> {
     engine.cloud_set(on).await
+}
+
+/// Per-agent "lights the puck" switch (D-055).
+#[tauri::command]
+fn agent_set(engine: State<'_, Engine>, id: String, on: bool) -> R<()> {
+    engine.agent_set(&id, on)
+}
+
+#[tauri::command]
+async fn quiet_set(engine: State<'_, Engine>, enabled: bool, from: String, to: String) -> R<()> {
+    engine
+        .quiet_set(quiet::Settings { enabled, from, to })
+        .await
+}
+
+/// The panel's content height (CSS px).
+#[tauri::command]
+fn panel_fit(app: AppHandle, height: f64) {
+    panel::fit(&app, height);
+}
+
+#[tauri::command]
+fn panel_hide(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(panel::LABEL) {
+        let _ = w.hide();
+    }
 }
 
 #[tauri::command]
@@ -144,26 +182,12 @@ pub fn open_path(path: &std::path::Path) -> R<()> {
     cmd.arg(path).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-pub fn show_settings(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-        return;
-    }
-    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("HumanNeeded")
-        .inner_size(760.0, 860.0)
-        .min_inner_size(420.0, 400.0)
-        .build();
-}
-
 fn main() {
     log::init(paths::data_dir().join("logs"));
     let first_run = !paths::data_dir().join("seen").exists();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_settings(app)
+            panel::show(app)
         }))
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -178,6 +202,10 @@ fn main() {
             puck_action,
             clear_sessions,
             cloud_set,
+            agent_set,
+            quiet_set,
+            panel_fit,
+            panel_hide,
             fw_check,
             fw_update,
             open_setup_guide,
@@ -189,6 +217,9 @@ fn main() {
             update_install
         ])
         .setup(move |app| {
+            // Menu-bar app: no Dock icon (D-055).
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let engine =
                 tauri::async_runtime::block_on(async { Engine::start(Config::from_env()).await });
             let engine = match engine {
@@ -215,17 +246,19 @@ fn main() {
                 let _ = app.autolaunch().enable(); // starts at login by default (D-027)
             }
             updater::start(app.handle());
+            panel::init(app.handle())?;
             tray::build(app.handle(), engine.clone())?;
+            // Started by hand (not at sign-in): show the panel once, so people see where it is.
             let background = std::env::args().any(|a| a == "--background");
             if !background {
-                show_settings(app.handle());
+                panel::show(app.handle());
             }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building the app")
         .run(|app, event| match event {
-            // Closing the window keeps the tray app running.
+            // The panel hiding never quits the tray app.
             tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } => api.prevent_exit(),
