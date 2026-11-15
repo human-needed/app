@@ -1,6 +1,6 @@
 # Test builds (unsigned, D-039): Windows NSIS installer and macOS universal .dmg.
-# A `v*` tag (e.g. v0.9.0-beta.1) builds both and publishes a GitHub pre-release with SHA-256
-# checksums. Run by hand (workflow_dispatch) it only builds them and keeps them as run artifacts.
+# A `v*` tag (e.g. v0.9.0-beta.1) builds both and publishes a GitHub release marked "latest"
+# (the website links to releases/latest/download/<stable name>) with SHA-256 checksums. Run by hand (workflow_dispatch) it only builds them and keeps them as run artifacts.
 name: release
 
 on:
@@ -25,11 +25,13 @@ jobs:
             args: --bundles nsis
             rust_targets: ""
             out: target/release/bundle/nsis/*.exe
+            stable: HumanNeeded-windows-x64-setup.exe
           - os: macos-latest
             name: macos
             args: --target universal-apple-darwin --bundles dmg
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             out: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            stable: HumanNeeded-macos-universal.dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,6 +62,9 @@ jobs:
         run: |
           mkdir dist
           cp ${{ matrix.out }} dist/
+          # Same file under a version-free name, so the website can link to
+          # releases/latest/download/<stable name> and never needs editing.
+          cp ${{ matrix.out }} "dist/${{ matrix.stable }}"
           ls -l dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -84,12 +89,12 @@ jobs:
         run: |
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - name: Publish pre-release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --prerelease \
+            --latest \
             --title "HumanNeeded $GITHUB_REF_NAME (test build)" \
             --notes "Unsigned test build. Windows: run the setup .exe. macOS (Apple silicon and Intel): open the .dmg. See 'Test builds' in the README for the SmartScreen / Gatekeeper steps. Check downloads against SHA256SUMS.txt."
