@@ -19,11 +19,18 @@ const DEFAULTS = {
   idle: { color: '#ffd2a0', light: 'solid' },
 };
 const SWATCHES = ['#ff8a1f', '#ffcf3a', '#ff4d4d', '#ff5fb0', '#a26bff', '#4a78ff', '#2ec4d6', '#26c25a', '#ffffff'];
-const MAIN_LIGHTS = ['solid', 'breathe', 'pulse'];
+// Every animation the puck's SCHEMA offers is shown (off = the page's switch). Known ones first,
+// in this order; any new one from a later firmware is added after them with a plain dot.
+const LIGHT_ORDER = ['solid', 'breathe', 'pulse', 'spin', 'blink', 'heartbeat', 'flicker'];
+const LIGHT_SHORT = { breathe: 'Breathe', flicker: 'Flicker', spin: 'Spin' };
 const FX_ICON = {
   solid: '<path d="M1 6h32" stroke="currentColor" stroke-width="2"/>',
   breathe: '<path d="M1 9c4 0 4-6 8-6s4 6 8 6 4-6 8-6 4 6 8 6" fill="none" stroke="currentColor" stroke-width="2"/>',
   pulse: '<path d="M1 10h4l2-8 2 8h6l2-8 2 8h6l2-8 2 8h3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  spin: '<circle cx="17" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="7 3.5"/>',
+  blink: '<path d="M1 10h5V2h6v8h5V2h6v8h5V2h5" fill="none" stroke="currentColor" stroke-width="2"/>',
+  heartbeat: '<path d="M1 8h7l2-6 2 6 2-3 2 3h18" fill="none" stroke="currentColor" stroke-width="2"/>',
+  flicker: '<path d="M1 7l3-3 2 5 3-6 2 4 3-2 2 5 3-6 2 3 3-1 2 4 3-3 2 2" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 };
 const AGENT_MARK = { claude: 'Cl', codex: 'Cx', cursor: 'Cu' };
 const AGENT_NAME = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' };
@@ -205,10 +212,12 @@ function renderState() {
   const on = light !== 'off';
   $('st-on').setAttribute('aria-checked', on);
   $('st-body').classList.toggle('dim', !on);
-  const lights = MAIN_LIGHTS.slice();
+  const offered = list('light').map(([k]) => k).filter((k) => k !== 'off');
+  const lights = LIGHT_ORDER.filter((l) => offered.includes(l)).concat(offered.filter((l) => !LIGHT_ORDER.includes(l)));
+  if (!lights.length) lights.push(...LIGHT_ORDER);
   if (on && !lights.includes(light)) lights.push(light);
   $('fx').innerHTML = lights.map((l) => `<button type="button" data-fx="${esc(l)}" aria-pressed="${l === light}">
-    <svg viewBox="0 0 34 12">${FX_ICON[l] || '<circle cx="17" cy="6" r="4" fill="currentColor"/>'}</svg>${esc(label('light', l))}</button>`).join('');
+    <svg viewBox="0 0 34 12">${FX_ICON[l] || '<circle cx="17" cy="6" r="4" fill="currentColor"/>'}</svg>${esc(LIGHT_SHORT[l] || label('light', l))}</button>`).join('');
   const color = (val(`${s.id}.color`) || '').toLowerCase();
   $('swatches').innerHTML = SWATCHES.map((c) => `<button type="button" style="--c:${c}" data-c="${c}" aria-label="Colour ${c}" aria-pressed="${c === color}"></button>`).join('')
     + `<button type="button" class="custom" id="custom" aria-label="Pick any colour" aria-pressed="${!SWATCHES.includes(color)}"></button><input type="color" id="picker" value="${esc(color || '#ffffff')}" tabindex="-1">`;
