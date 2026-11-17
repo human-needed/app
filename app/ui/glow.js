@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Screen-edge glow page (D-059): shows what the app sends ({state, color, light, level}).
 (() => {
   const g = document.getElementById('g');

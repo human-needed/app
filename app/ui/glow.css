@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Screen-edge glow (D-059). One layer, masked to a soft frame along the screen edges. Only
    opacity and transform animate, so the compositor does the work; with nothing to show the
    layer is fully transparent and nothing animates. Timings are the puck's (firmware leds.cpp). */

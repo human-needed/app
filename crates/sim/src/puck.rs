@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The puck's behaviour per `hn-usb/2`, as a pure state machine (time is passed in, ms).
 
 use hn_core::proto::{valid_id, SnapState, MAX_ENTRIES, MAX_LINE};

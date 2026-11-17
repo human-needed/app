@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! "This computer" (D-059): the app's own output when no puck is connected. The app is useful on
 //! its own: the screen edges glow and the computer plays the sounds.
 //!

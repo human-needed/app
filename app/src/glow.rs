@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Screen-edge glow (D-059): the screen edges light up in the state's colour and animation, like
 //! the puck. Works with or without a puck, on every monitor.
 //!

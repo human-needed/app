@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Tray / menu-bar icon (D-055): a ring in the colour of the state shown (on the puck, or on this
 //! computer when there's no puck, D-059), with a small dot when sounds are muted (grey) or
 //! something needs fixing (red). Left click opens the panel; right click: Screen edge glow,

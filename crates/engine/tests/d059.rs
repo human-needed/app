@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! D-059: with no puck, "this computer" shows the state (glow) and plays the sounds; a puck
 //! that connects takes over and its look is copied.
 

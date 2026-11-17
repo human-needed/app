@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // HumanNeeded tray panel (D-055): the remote control for the state lights and sounds. Talks only
 // to the app (Tauri commands). With a puck, its settings are the puck's; without one (D-059) the
 // app answers the same commands for "this computer" (screen glow and sound). Lists (lights,

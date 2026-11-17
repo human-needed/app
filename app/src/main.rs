@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! HumanNeeded tray app (D-027, D-031, D-055): one per user, starts at login, the only writer to
 //! the puck. Tray only: no main window, one panel that opens from the tray / menu-bar icon. The
 //! engine (hn-engine) does the work; this file wires the tray, the panel and the commands the
