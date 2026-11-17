@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! D-055 engine features against the simulated puck: per-state levels held at 100, per-agent
 //! switches, quiet hours.
 

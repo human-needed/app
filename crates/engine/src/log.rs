@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! A small append-only log file (`<data>/logs/app.log`, trimmed at 1 MB). Also echoed to stderr.
 
 use std::io::Write;

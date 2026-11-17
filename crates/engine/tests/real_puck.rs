@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Hardware-in-loop: the app engine against a real puck (testing §2). Skipped unless
 //! `HN_REAL_PUCK` is set (`auto` or a port like `COM13`). Never runs BOOTSEL.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! D-049 (app-events 2.0 §5): Claude sends its HTTP hooks through `HTTP(S)_PROXY` unless
 //! `NO_PROXY` contains `127.0.0.1` (`localhost` alone is not enough). Then the hooks never reach
 //! the app and the puck stays dark, so the app warns, with a one-line fix.

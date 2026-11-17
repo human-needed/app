@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Liveness sources (app-events §3): Claude's session files + "is this process still the one".
 
 use hn_core::claude::parse_session_file;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! End to end on this machine: the real `hn` binary → IPC → engine → puck simulator.
 
 use hn_engine::{Config, Engine, PuckTarget};

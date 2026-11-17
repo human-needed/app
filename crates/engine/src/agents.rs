@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only agent status (D-054): the user installs each plugin themselves; the app only says
 //! whether it has heard from that agent lately. "Connected" = an event from it arrived in the last
 //! [`RECENT_MS`]. Last-seen times survive restarts in `data_dir/agents.json` (`{"<id>": ms}`).

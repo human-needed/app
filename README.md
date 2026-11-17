@@ -1,129 +1,231 @@
-# HumanNeeded app
+<div align="center">
 
-[![tests](https://github.com/human-needed/app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/human-needed/app/actions/workflows/ci.yml)
+<img src="docs/images/hero.png" alt="HumanNeeded: the screen edges glow orange while Claude Code waits for permission, next to the HumanNeeded tray panel" width="800">
 
-The per-user tray app that owns the HumanNeeded puck: it merges the sessions of every agent
-(Claude Code, Codex, Cursor, …), checks they are still alive, and sends the puck one snapshot
-under a lease, so the light always clears itself if anything goes wrong.
+# HUMAN_NEEDED
 
-| Part | What |
+**Know when your AI agent needs you, without watching it.**
+
+[![CI](https://github.com/human-needed/app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/human-needed/app/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/human-needed/app?include_prereleases&label=release)](https://github.com/human-needed/app/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+![Platforms: Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
+
+[Website](https://human-needed.com) · [Download](https://github.com/human-needed/app/releases/latest) · [Setup guides](https://human-needed.com/start/) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
+
+</div>
+
+HumanNeeded is a free, open-source tray app for Windows and macOS. It listens to your coding
+agents and tells you when one is **working**, **needs you**, or is **done**: the edges of your
+screen glow in the state's colour and a short chime plays. Start a task, look away, and come
+back when it's your turn.
+
+## Features
+
+- 🟠 **Screen-edge glow** on every monitor, in the state's colour and animation. It never takes
+  focus or clicks, and it doesn't show up in screen shares.
+- 🔔 **Chimes** for "needs you" and "done", with 15 sounds and melodies to choose from.
+- 🤖 **Every agent, one signal:** Claude Code, Codex, Cursor and Cowork / Claude on the web.
+  "Needs you" always wins.
+- 🎨 **Your look:** colour, animation and sound for each state, plus brightness and volume.
+- 🌙 **Quiet hours:** sounds off and the glow dimmed overnight. Mute for an hour from the tray.
+- 🧹 **Clears itself:** if an agent crashes or you close it, its signal goes away on its own.
+- 🔒 **Local first:** everything runs on your computer (see [Privacy](#privacy)).
+- 💡 **Optional desk light:** add the [HumanNeeded puck](#the-puck-optional) to see it across
+  the room.
+
+## Screenshots
+
+| Tray panel | Edge glow |
 |---|---|
-| `crates/core` | `hn-events/1` (agent → app), host side of `hn-usb/2`, session table + liveness rules. No I/O |
-| `crates/engine` | Local HTTP hub (agents' hooks post here), puck link (discovery, reconnect), SNAP every 10 s / on change, liveness, firmware update, per-agent status, proxy check. `hnd` = headless app |
-| `crates/cli` | `hn`: **dev and test tool only** (talks to the app over a named pipe / Unix socket; used by the e2e tests). Agents no longer use it (app-events 2.0) and it isn't shipped |
-| `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
-| `app` | Tauri tray app: tray / menu-bar icon and one panel (D-055); theme tokens in `app/ui/tokens.css` |
+| <img src="docs/images/panel.jpg" alt="Tray panel: brightness and volume, and the four states Working, Needs you, Done and Idle" width="340"> | <img src="docs/images/hero.png" alt="The screen edges glow orange: an agent needs you" width="440"> |
 
-## Test builds
+## Install
 
-Releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
-`.github/workflows/release.yml` from a `v*` tag). They are **unsigned**, so the OS warns once.
-Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on Windows,
-`shasum -a 256 <file>` on macOS).
+Download the latest release from **[Releases](https://github.com/human-needed/app/releases/latest)**:
 
-- **Windows:** run `HumanNeeded_<version>_x64-setup.exe`. If SmartScreen says "Windows protected
-  your PC": **More info → Run anyway**. Installs per user (no admin).
-- **macOS** (Apple silicon and Intel): open the `.dmg`, drag HumanNeeded to Applications, then open
-  it. If macOS says it can't check it for malware: **System Settings → Privacy & Security → Open
-  Anyway** (at the bottom), then open it again. On older macOS, right-click the app → **Open** also
-  works.
+| OS | File |
+|---|---|
+| Windows 10 / 11 (x64) | `HumanNeeded-windows-x64-setup.exe`: installs for your user, no admin needed |
+| macOS (Apple silicon and Intel) | `HumanNeeded-macos-universal.dmg`: drag HumanNeeded to Applications |
 
-Not yet on macOS: liveness for Codex/Cursor uses the
-2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
-untested there.
+> [!NOTE]
+> The builds aren't code-signed yet, so your OS warns you once:
+> - **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
+> - **macOS:** "can't be opened" → **System Settings → Privacy & Security** → **Open Anyway**,
+>   then open the app again.
+>
+> Every release has a `SHA256SUMS.txt` to check your download. The app then updates itself
+> (signed updates, installed when you choose to restart).
 
-### Tray panel (D-055)
+The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
+right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**.
 
-No main window. Left-click the tray / menu-bar icon for the panel (it closes when you click
-elsewhere); right-click for **Mute for 1 hour** and **Quit**. The icon is a ring in the colour the
-puck shows, with a grey dot when muted and a red dot when something needs fixing.
+## Quick start: connect your agents
 
-- Home: the puck's line ("Puck · Connected", or the problem with its fix), master brightness and
-  volume with one mute button, and four state tiles (light, colour, sound, "stay on for" for
-  Done, Default, Preview on puck). Unplugged: only "Plug in your puck".
-- Settings: agents that light the puck (per-agent switch; Cowork = the cloud link), quiet hours,
-  firmware check/update, start at sign-in, auto-update, Advanced.
-- Per-state brightness/volume are not in the UI: the app keeps them at 100 (a share of the master
-  level, hn-usb/2 §5), so the two master sliders are the only levels.
-- Quiet hours: between From and To (local time) the app mutes the puck and dims it to a quarter of
-  its brightness, then puts the level back (unless you changed it). Kept in `quiet.json`.
-- Agent switches are kept in `agent-switches.json`; a switched-off agent is still shown as
-  connected but its events don't light the puck.
-- Fonts (D-058): Geist for text and headings, IBM Plex Mono for numbers, values and the
-  HUMAN_NEEDED wordmark; bundled (`app/ui/fonts`, SIL OFL 1.1).
+Install the app first, then add the agents you use. Full guides:
+**[human-needed.com/start](https://human-needed.com/start/)**.
 
-### Auto-update
+<details>
+<summary><b>Claude Code</b> (terminal, desktop app, VS Code)</summary>
 
-From 0.9.0-beta.2 the app updates itself (Tauri updater). It checks
-`releases/latest/download/latest.json` 10 s after start and every 6 h (setting: "Check for app
-updates automatically" in the panel's Settings, on by default). A new version downloads in the background and is only installed when you click
-**Restart to update**. Offline or failed checks are logged and retried in 30 min.
-
-Updates are signed with the project's updater key; the app refuses any package whose signature
-doesn't match the public key in `app/tauri.conf.json`. The release workflow signs with the
-`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repo secrets and publishes
-`latest.json`. **If that private key is lost, installed apps can never update again**; keep a backup.
-
-Testing locally (debug builds only): `HN_UPDATE_URL=<url of a latest.json>` overrides the endpoint,
-and `HN_UPDATE_TEST_INSTALL=1` installs as soon as the update is ready.
-
-## Cloud chats (relay-api §3)
-
-Cowork and Claude on the web run their hooks in a cloud VM that can't reach this PC. With
-**Light the puck for cloud chats** on (off by default), the app keeps a WebSocket to
-`wss://relay-ws.human-needed.com/v1` and shows those chats as `claude-cloud` sessions (dropped after
-120 s without a message; the cloud hook sends a heartbeat every 45 s).
-
-- Route key `K` = first 32 hex of `sha256("humanneeded-account:" + accountUuid)`. Not secret.
-  The app listens on every account it finds (D-051), read again every minute: Claude Desktop's
-  `config.json` `lastKnownAccountUuid` (`%APPDATA%\Claude`, the Store build's
-  `%LOCALAPPDATA%\Claude-Data\*`, macOS `~/Library/Application Support/Claude`) and
-  `~/.claude.json`. One connection per account, same install id.
-- This install's id and secret live in the OS credential store (Windows Credential Manager entry
-  `cloud-link.HumanNeeded`, macOS Keychain), never in a file. Turning the link off unbinds this PC
-  and deletes them.
-- Ping every 4 min; reconnect with backoff 5 → 120 s; every 3 min a probe is POSTed to `K` and must
-  come back ("Working" in the window). Up to 3 PCs per account (`key_full` is shown).
-- Dev overrides (only with `HN_DEV=1`): `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`, `HN_CLAUDE_DESKTOP_CONFIG`,
-  `HN_CRED_SERVICE`.
-
-## Build and test
-
+```bash
+claude plugin marketplace add human-needed/plugins
 ```
+
+```bash
+claude plugin install humanneeded@humanneeded
+```
+
+Then turn on auto-update: in Claude Code type `/plugin` → **Marketplaces** → **humanneeded** →
+**Enable auto-update**. Start a new session.
+</details>
+
+<details>
+<summary><b>Codex</b></summary>
+
+Add our hooks file to `~/.codex/hooks.json`:
+[guide and one-line installer](https://github.com/human-needed/plugins#codex). Then restart Codex
+and **approve the hooks** (`/hooks` in the CLI, or **Settings → Hooks** in the app).
+</details>
+
+<details>
+<summary><b>Cursor</b></summary>
+
+Add our hooks file to `~/.cursor/hooks.json`:
+[guide and one-line installer](https://github.com/human-needed/plugins#cursor). Cursor picks it up
+at once. It shows working and done (Cursor has no "needs you" hook).
+</details>
+
+<details>
+<summary><b>Cowork and Claude on the web</b> (cloud)</summary>
+
+Cloud tasks run in a cloud machine that can't reach your computer. Install the Claude Code
+plugin above, then in the app turn on **Settings → Agents → Cowork**. The app links to the
+HumanNeeded relay with your Claude account (signed in to Claude on this computer).
+</details>
+
+The panel shows each agent as **Connected** once it has sent an event.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Claude Code · Codex · Cursor<br/>(hooks)"] -- "state events<br/>127.0.0.1:24816" --> H
+    C["Cowork / Claude on the web"] -- "via the HumanNeeded relay<br/>(only if you turn it on)" --> H
+    H["HumanNeeded app<br/>local hub: merges sessions,<br/>checks they're still alive"]
+    H --> G["Screen-edge glow"]
+    H --> S["Chime"]
+    H -. "USB, optional" .-> P["Puck"]
+```
+
+1. Each agent's **hooks** post its state (working, needs you, done) to the app on `127.0.0.1`.
+2. The **local hub** merges every session into one state, with "needs you" first, and clears
+   sessions whose agent has gone away.
+3. The app shows that state: **glow and chime** on this computer, or on the **puck** when one
+   is plugged in (the glow stays on too, if you like).
+
+## Privacy
+
+- **What the app reads, on your computer:**
+  - the state events your agents' hooks send;
+  - Claude Code's session files, to tell whether a session is still alive;
+  - on Windows, the agent's process, for the same reason;
+  - with the cloud link on, the account ID in Claude's config files.
+- **What leaves your computer:** nothing, unless you turn on the **cloud link** (off by default).
+  Then the app keeps a connection to the HumanNeeded relay to receive your cloud chats' states.
+  It's addressed by a hash of your Claude account ID, never by your prompts, code or files.
+- **No telemetry, no accounts, no ads.**
+- **Update checks:** the app downloads its update file from GitHub Releases, and, when you ask,
+  the puck's firmware list from human-needed.com. Neither sends anything about you.
+
+## The puck (optional)
+
+The **HumanNeeded puck** is a small USB desk light with a chime, for when you're away from the
+screen: across the room, on a call, making coffee. Plug it in and the app finds it. The panel then
+sets its colours, animations and sounds, and updates its firmware. Everything else works without
+it. More at **[human-needed.com](https://human-needed.com)**.
+
+## FAQ
+
+<details>
+<summary><b>Do I need the puck?</b></summary>
+
+No. The app works on its own with the screen-edge glow and chimes. The puck is an extra.
+</details>
+
+<details>
+<summary><b>Will the glow get in my way?</b></summary>
+
+It never takes focus or clicks, and it isn't captured in screenshots or screen shares.
+"Working" glows softly and "Idle" never glows. Turn it off any time from the tray menu.
+</details>
+
+<details>
+<summary><b>Does it slow my computer down?</b></summary>
+
+Barely. It idles when nothing happens; the glow animates on the GPU compositor and stops when
+there's nothing to show. The audio device is only opened while a chime plays.
+</details>
+
+<details>
+<summary><b>Why does Windows or macOS warn me when I install it?</b></summary>
+
+The builds aren't code-signed yet. The steps under [Install](#install) get you past it once.
+Signing is planned.
+</details>
+
+<details>
+<summary><b>Which agents work?</b></summary>
+
+Claude Code, Codex, Cursor, and Cowork / Claude on the web. Anything that can run a hook can post
+to the app's [event API](docs/DEVELOPMENT.md#for-agent-integrations-app-events-20).
+</details>
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| An agent shows **Not set up** | Install its plugin or hooks ([quick start](#quick-start-connect-your-agents)), then start a new session. Codex: approve the hooks. |
+| Nothing lights up and you use a proxy | Add `127.0.0.1` to `NO_PROXY`. The panel shows the exact line. |
+| "Agents can't reach the app" | Another program uses port 24816. Close it or restart your computer. |
+| No sound | Check the volume and mute button in the panel, and quiet hours in Settings. |
+| Cursor never shows "needs you" | Cursor has no hook for it yet: only working and done. |
+| macOS: the app "can't be opened" | See the note under [Install](#install). |
+
+Still stuck? [Open an issue](https://github.com/human-needed/app/issues/new/choose) with the log
+from **Settings → Advanced → Open log**.
+
+## Build from source
+
+You need [Rust](https://rustup.rs) (stable). On Linux, also Tauri's
+[system packages](https://v2.tauri.app/start/prerequisites/#linux), `libudev-dev` and `libasound2-dev`.
+
+```bash
+git clone https://github.com/human-needed/app && cd app
+```
+
+```bash
 cargo test --workspace
-cargo build
 ```
 
-## Run against the simulator
-
-```
-target/debug/hn-sim --listen 127.0.0.1:47800 --uf2-dir <folder>
-HN_DEV=1 HN_PUCK=tcp:127.0.0.1:47800 target/debug/humanneeded
-curl -H 'Content-Type: application/json' -d '{"session_id":"s1"}' http://127.0.0.1:24816/v1/event/claude/working
-curl http://127.0.0.1:24816/v1/status
+```bash
+cargo run -p humanneeded
 ```
 
-Environment: `HN_PUCK` (`auto` | `serial:COM7` | `tcp:host:port` | `sim` | `none`), `HN_HTTP_PORT`
-(default 24816, 0 = off), `HN_IPC` (pipe for the `hn` dev tool), `HN_LATEST_URL`, `HN_UF2_DRIVE`
-(fake drive folder), `HN_DATA_DIR`, `HN_DEV=1` (don't register start-at-login or clean up PATH).
+The code layout, the event API for agent integrations and the puck simulator are in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-## For agent integrations (app-events 2.0)
+## Contributing
 
-The user installs each agent's plugin (guides: https://human-needed.com/start/, D-054). The
-panel only shows **Connected** for an agent that sent an event in the last 7 days (kept in
-`agents.json` in the data folder), else **Not set up**.
+Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first:
+commits need a DCO sign-off (`git commit -s`). Security problems go privately through
+[SECURITY.md](SECURITY.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
-Post each hook's JSON to the app (D-047), with `Content-Type: application/json`:
+## License
 
-```
-POST http://127.0.0.1:24816/v1/event/<agent>/<working|needs|done|idle|end>
-```
+HumanNeeded is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License v3.0 or later](LICENSE). The bundled fonts (Geist, IBM Plex Mono) are
+under the SIL Open Font License 1.1 (`app/ui/fonts`).
 
-Reply `204`. Skill endpoints: `GET /v1/status`, `POST /v1/test/<state>`, `/v1/mute/<min>`,
-`/v1/clear`, `/v1/set` `{"key","value"}`. Requests with an `Origin` header or a foreign `Host`
-are refused (403); a POST without a JSON content type gets 405.
-
-Sessions of agents other than Claude live as long as the agent process that sent the hook (found
-from the connection, Windows), else the `ttl` / 2 h rule. Claude events carrying `cursor_version`
-are dropped (Cursor running imported Claude hooks). With `HTTP(S)_PROXY` set and no `127.0.0.1`
-in `NO_PROXY`, the app shows a warning with a one-line fix (D-049).
+© 2026 HumanNeeded contributors · [human-needed.com](https://human-needed.com)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The session table (app-events §3, D-019, D-020, D-028).
 //!
 //! All agents' sessions are merged here; the puck only gets the resulting snapshot. A session is

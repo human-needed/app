@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! app-events 2.0 retired `hn` (agents post to the local HTTP hub instead). 1.0 builds copied it
 //! to `<data>/bin` and put that on PATH (Windows: user PATH; macOS `/usr/local/bin/hn`, Linux
 //! `~/.local/bin/hn`, symlinks to our copy). This removes exactly those, nothing else.

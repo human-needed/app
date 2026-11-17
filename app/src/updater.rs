@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! App auto-update (Tauri updater plugin, signed with the project's updater key).
 //!
 //! - Checks 10 s after start and then every 6 h when automatic checks are on (default).
