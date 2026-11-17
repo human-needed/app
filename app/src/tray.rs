@@ -26,12 +26,13 @@ pub struct Look {
     pub dot: Dot,
 }
 
-/// The puck's 16-LED ring as a 32 px icon (16 segments with small gaps), plus the dot.
+/// The brand mark (D-058) as a 32 px icon: a ring of 8 segments, gaps at the top, right, bottom
+/// and left and between them, plus the dot.
 pub fn icon(look: &Look) -> Image<'static> {
     const N: u32 = 32;
     let mut px = vec![0u8; (N * N * 4) as usize];
     let c = (N as f32 - 1.0) / 2.0;
-    let (r_mid, half_w) = (10.6_f32, 2.6_f32);
+    let (r_mid, half_w) = (10.6_f32, 2.5_f32);
     let (dx, dy, dr) = (24.5_f32, 24.5_f32, 5.2_f32);
     let dot = match look.dot {
         Dot::None => None,
@@ -44,10 +45,10 @@ pub fn icon(look: &Look) -> Image<'static> {
             let d = (fx * fx + fy * fy).sqrt();
             // Ring band, anti-aliased.
             let band = (half_w + 0.5 - (d - r_mid).abs()).clamp(0.0, 1.0);
-            // 16 segments: a gap of ~16% of each segment.
-            let a = fy.atan2(fx).rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 16.0;
+            // 8 segments: a gap of ~21% of each (as the mark), edges anti-aliased over ~1 px.
+            let a = fy.atan2(fx).rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 8.0;
             let f = a.fract();
-            let seg = ((f.min(1.0 - f) - 0.08) * 12.0).clamp(0.0, 1.0);
+            let seg = ((f.min(1.0 - f) - 0.1035) * 8.3 + 0.5).clamp(0.0, 1.0);
             let mut alpha = band * seg;
             let mut rgb = look.ring;
             if let Some(col) = dot {
@@ -262,5 +263,8 @@ mod tests {
         let at = |x: usize, y: usize| &px[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4];
         assert_eq!(&at(24, 24)[..3], &DOT_PROBLEM);
         assert_eq!(at(16, 16)[3], 0, "centre is clear");
+        // The 8-segment mark: a gap at the top, a solid segment 22.5° clockwise from it.
+        assert!(at(16, 5)[3] < 64, "gap at the top");
+        assert_eq!(at(20, 6)[3], 255, "segment between the gaps");
     }
 }

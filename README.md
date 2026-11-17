@@ -49,7 +49,8 @@ puck shows, with a grey dot when muted and a red dot when something needs fixing
   its brightness, then puts the level back (unless you changed it). Kept in `quiet.json`.
 - Agent switches are kept in `agent-switches.json`; a switched-off agent is still shown as
   connected but its events don't light the puck.
-- Fonts: Geist and Geist Mono, bundled (`app/ui/fonts`, SIL OFL 1.1).
+- Fonts (D-058): Geist for text and headings, IBM Plex Mono for numbers, values and the
+  HUMAN_NEEDED wordmark; bundled (`app/ui/fonts`, SIL OFL 1.1).
 
 ### Auto-update
 
