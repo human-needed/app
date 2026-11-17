@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// HumanNeeded tray panel (D-055): the remote control for the state lights and sounds. Talks only
-// to the app (Tauri commands). With a puck, its settings are the puck's; without one (D-059) the
-// app answers the same commands for "this computer" (screen glow and sound). Lists (lights,
-// sounds, durations) come from SCHEMA.
+// HumanNeeded tray panel (D-059 app-first, WS-DESIGN rounds 14–16). Talks only to the app (Tauri
+// commands). The app owns the alert settings: per state, the computer's screen edges and sound,
+// and the puck's light and sound (pushed to the puck when it connects).
+//
+// Views: main (agents, state cards, Puck, Settings) · state (Computer / Puck tabs) · Settings ·
+// Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
 'use strict';
 const $ = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
@@ -14,45 +16,40 @@ const STATES = [
   { id: 'done', name: 'Done' },
   { id: 'idle', name: 'Idle' },
 ];
-// Firmware 2.0 defaults (settingsDefaults), for a state's "Default" button.
-const DEFAULTS = {
-  needs: { color: '#ffa62b', light: 'pulse', sound: 'call', duration: '0' },
-  done: { color: '#22e04a', light: 'pulse', sound: 'bright', duration: '3' },
-  working: { color: '#3366ff', light: 'spin', sound: 'none', duration: '0' },
-  idle: { color: '#ffd2a0', light: 'solid' },
+const STATE_NAME = Object.fromEntries(STATES.map((s) => [s.id, s.name]));
+const LIGHTS = [['solid', 'Solid'], ['breathe', 'Breathe'], ['pulse', 'Pulse'], ['blink', 'Blink'], ['heartbeat', 'Heartbeat'], ['flicker', 'Candle flicker'], ['spin', 'Spin']];
+const SOUNDS = [['ding', 'Ding'], ['chime', 'Chime'], ['rising', 'Rising'], ['arpeggio', 'Arpeggio'], ['bell', 'Bell'], ['beeps', 'Beeps'], ['bloop', 'Bloop'],
+  ['bright', 'Bright (melody)'], ['clock', 'Clock (melody)'], ['doorbell', 'Doorbell (melody)'], ['fanfare', 'Fanfare (melody)'], ['ripple', 'Ripple (melody)'],
+  ['call', 'Call (melody)'], ['lullaby', 'Lullaby (melody)'], ['harp', 'Harp (melody)']];
+const DURATIONS = [[3, '3 seconds'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
+const UNTIL = { needs: 'Until you answer', working: 'While it works', idle: 'Always', done: '' };
+const SWATCHES = ['#ffa62b', '#ff4d4d', '#ff5fb0', '#a26bff', '#3366ff', '#2ec4d6', '#22e04a', '#ffd2a0', '#ffffff'];
+// The agents listed, in order. Cowork is the cloud link (claude-cloud).
+const AGENTS = [
+  { id: 'claude', name: 'Claude Code', logo: 'claude' },
+  { id: 'codex', name: 'Codex', logo: 'openai' },
+  { id: 'claude-cloud', name: 'Cowork', logo: 'claude' },
+  { id: 'cursor', name: 'Cursor', logo: 'cursor' },
+];
+const LOGO = {
+  claude: '<img src="logos/claude-color.svg" alt="">',
+  openai: '<span class="mk" style="--u:url(logos/openai.svg)"></span>',
+  cursor: '<span class="mk" style="--u:url(logos/cursor.svg)"></span>',
 };
-const SWATCHES = ['#ff8a1f', '#ffcf3a', '#ff4d4d', '#ff5fb0', '#a26bff', '#4a78ff', '#2ec4d6', '#26c25a', '#ffffff'];
-// Every animation the puck's SCHEMA offers is shown (off = the page's switch). Known ones first,
-// in this order; any new one from a later firmware is added after them with a plain dot.
-const LIGHT_ORDER = ['solid', 'breathe', 'pulse', 'spin', 'blink', 'heartbeat', 'flicker'];
-const LIGHT_SHORT = { breathe: 'Breathe', flicker: 'Flicker', spin: 'Spin' };
-const FX_ICON = {
-  solid: '<path d="M1 6h32" stroke="currentColor" stroke-width="2"/>',
-  breathe: '<path d="M1 9c4 0 4-6 8-6s4 6 8 6 4-6 8-6 4 6 8 6" fill="none" stroke="currentColor" stroke-width="2"/>',
-  pulse: '<path d="M1 10h4l2-8 2 8h6l2-8 2 8h6l2-8 2 8h3" fill="none" stroke="currentColor" stroke-width="2"/>',
-  spin: '<circle cx="17" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="7 3.5"/>',
-  blink: '<path d="M1 10h5V2h6v8h5V2h6v8h5V2h5" fill="none" stroke="currentColor" stroke-width="2"/>',
-  heartbeat: '<path d="M1 8h7l2-6 2 6 2-3 2 3h18" fill="none" stroke="currentColor" stroke-width="2"/>',
-  flicker: '<path d="M1 7l3-3 2 5 3-6 2 4 3-2 2 5 3-6 2 3 3-1 2 4 3-3 2 2" fill="none" stroke="currentColor" stroke-width="1.6"/>',
-};
-const AGENT_MARK = { claude: 'Cl', codex: 'Cx', cursor: 'Cu' };
-const AGENT_NAME = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' };
 const CLOUD_TEXT = {
-  off: 'Through the HumanNeeded relay',
   no_account: 'Sign in to Claude on this computer first',
-  connecting: 'Connecting to the relay…',
-  connected: 'Connected; checking messages come through…',
-  working: 'Working through the HumanNeeded relay',
+  connecting: 'Connecting…',
+  connected: 'Checking it works…',
   key_full: 'Three other computers use this account',
   error: 'The relay refused this computer',
 };
 
-let st = null;          // last status
-let cfg = {};           // puck settings (GET all)
-let schema = null;      // puck SCHEMA
+let st = null;     // app status
+let A = null;      // alert settings
+let D = null;      // default alert settings per state
 let view = 'v-home';
-let cur = null;         // state being edited
-let busy = false;       // a slider is being dragged
+let cur = null;    // state being edited
+let tab = 'c';     // 'c' computer | 'p' puck
 
 function esc(v) {
   return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -65,6 +62,19 @@ function toast(t) {
   tm = setTimeout(() => $('toast').classList.remove('show'), 2400);
 }
 function fail(e) { toast(String(e)); }
+const label = (list, v) => (list.find(([k]) => String(k) === String(v)) || [v, String(v)])[1];
+const short = (l) => l.replace(/\s*\(.*\)$/, '');
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 45) return 'now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+const sw = (attrs, on, dis) => `<button type="button" class="sw" role="switch" aria-checked="${!!on}" ${attrs}${dis ? ' disabled' : ''}></button>`;
+const puckOn = () => !!(st && st.puck && st.puck.connected);
 
 // ---- the window follows its content ----
 function fit() {
@@ -75,59 +85,153 @@ function fit() {
 }
 function go(id, back) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('on', 'back'));
-  const v = $(id);
-  v.classList.add('on');
-  if (back) v.classList.add('back');
+  $(id).classList.add('on');
+  if (back) $(id).classList.add('back');
   view = id;
+  render();
   fit();
 }
-function homeView() { return 'v-home'; }
-const out = () => (st && st.output) || {};
-const onPuck = () => out().device === 'puck';
 
-// ---- puck data ----
-const val = (k) => (cfg[k] === undefined ? undefined : String(cfg[k]));
-function list(name) {
-  const l = (schema && schema.lists && schema.lists[name]) || [];
-  return l.map((o) => (Array.isArray(o) ? o : [o, o]));
-}
-function label(name, v) {
-  const o = list(name).find(([k]) => k === v);
-  return o ? o[1].replace(/\s*\(.*\)$/, '') : v;
-}
-async function loadPuck() {
-  if (!st || (st.puck.connected && !st.puck.compatible)) return;
+// ---- alert settings ----
+async function loadAlerts() {
   try {
-    if (!schema) schema = await invoke('puck_schema');
-    cfg = await invoke('puck_settings');
-  } catch (e) { return; }
-  renderHome();
-  if (view === 'v-state' && cur) renderState();
+    const r = await invoke('alerts_get');
+    A = r.alerts;
+    D = r.defaults;
+  } catch (e) { /* the app isn't ready yet */ }
 }
-async function set(key, value) {
-  cfg[key] = value;
-  try { await invoke('puck_set', { key, value: String(value) }); } catch (e) { fail(e); }
-}
-async function act(action, arg) {
-  try { await invoke('puck_action', { action, arg }); } catch (e) { fail(e); }
+let saveTimer;
+function save(now) {
+  clearTimeout(saveTimer);
+  const send = () => invoke('alerts_set', { alerts: A }).catch((e) => { fail(e); loadAlerts().then(render); });
+  if (now) send(); else saveTimer = setTimeout(send, 150);
 }
 
-// ---- home ----
+// ---- main view ----
 function problem() {
   const h = st.http || {};
   if (h.error) {
-    return {
-      text: "Agents can't reach the app",
-      fix: `Another program is using port ${h.port || 24816} (${h.error}). Close it or restart your computer; HumanNeeded keeps trying.`,
-    };
+    return { title: "Agents can't reach the app", text: `Another program is using port ${h.port || 24816} (${h.error}). Close it or restart your computer; HumanNeeded keeps trying.` };
   }
   if (st.proxy && st.proxy.problem) {
-    return { text: 'A proxy blocks your agents', fix: st.proxy.problem, code: st.proxy.fix, btn: 'Copy' };
-  }
-  if (st.puck.connected && !st.puck.compatible) {
-    return { text: 'Firmware too old for this app', fix: 'Update the puck to use it with this app. Settings are kept.', btn: 'Update firmware' };
+    return { title: 'A proxy blocks your agents', text: st.proxy.problem, code: st.proxy.fix, btn: 'Copy' };
   }
   return null;
+}
+function agentRow(a) {
+  const sessions = (st.sessions || []).filter((s) => s.agent === a.id && (s.state === 'needs' || s.state === 'working'));
+  const active = sessions.find((s) => s.state === 'needs') || sessions[0];
+  let on; let line; let setup = false;
+  if (a.id === 'claude-cloud') {
+    const c = st.cloud || {};
+    on = !!c.enabled;
+    const seen = st.cloud_last_seen;
+    if (on && CLOUD_TEXT[c.state] && c.state !== 'working') line = esc(c.error || CLOUD_TEXT[c.state]);
+    else if (!on) line = 'Off';
+    else if (seen) line = `<i></i>Last signal ${ago(seen)}`;
+    else line = 'Waiting for a cloud chat';
+    if (!c.state && c.enabled === undefined) return '';
+  } else {
+    const s = (st.agents || []).find((x) => x.id === a.id) || {};
+    on = s.enabled !== false;
+    setup = s.state !== 'connected';
+    if (setup) line = 'Not set up';
+    else if (!on) line = 'Off';
+    else if (s.last_seen) line = `<i></i>Last signal ${ago(s.last_seen)}`;
+    else line = '';
+  }
+  if (on && active) {
+    line = `<i style="--c:var(--hn-${active.state})"></i>${STATE_NAME[active.state]} · ${ago(active.set_at || active.last_seen)}`;
+  }
+  const right = setup
+    ? '<button type="button" class="btn pri setup" data-guide>Set up</button>'
+    : sw(`data-agent="${esc(a.id)}" aria-label="${esc(a.name)}"`, on);
+  return `<div class="agrow${on && !setup ? '' : ' off'}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;
+}
+function tileText(id) {
+  const a = A.states[id];
+  const parts = [];
+  if (a.screen.on) parts.push('Edges');
+  if (a.screen.on && id === 'done') parts.push(`${a.screen.duration} s`);
+  if (a.sound && a.sound.on) parts.push(short(label(SOUNDS, a.sound.sound)).toLowerCase());
+  if (parts.length) return parts.slice(0, 2).join(' · ');
+  return puckOn() && (a.puck.on || (a.puck_sound && a.puck_sound.on)) ? 'Puck only' : 'Off';
+}
+function renderHome() {
+  const pr = problem();
+  $('fix').hidden = !pr;
+  if (pr) {
+    $('fix-title').textContent = pr.title;
+    $('fix-text').textContent = pr.text;
+    $('fix-code').hidden = !pr.code;
+    $('fix-code').textContent = pr.code || '';
+    $('fix-btn').hidden = !pr.btn;
+    $('fix-btn').textContent = pr.btn || '';
+  }
+  $('agents').innerHTML = AGENTS.map(agentRow).join('');
+  const m = (st.output && st.output.status && st.output.status.muted) || 'off';
+  const q = st.quiet || {};
+  let note = '';
+  if (q.active) note = `Quiet hours until ${q.to}: no sounds, softer light.`;
+  else if (m === 'on') note = 'Sounds muted.';
+  else if (m !== 'off') note = `Sounds muted for ${m} more min.`;
+  $('mute-note').hidden = !note;
+  $('mute-note').textContent = note;
+  if (A) {
+    $('tiles').innerHTML = STATES.map((s) => {
+      const a = A.states[s.id];
+      const off = tileText(s.id) === 'Off';
+      const c = a.screen.on || !a.puck.on ? a.screen.color : a.puck.color;
+      return `<button type="button" class="tile${off ? ' off' : ''}" data-state="${s.id}" style="--c:${esc(c)}">
+        <span class="lamp"></span><b>${esc(s.name)}</b><small>${esc(tileText(s.id))}</small></button>`;
+    }).join('');
+  }
+  const p = st.puck || {};
+  const old = p.connected && !p.compatible;
+  $('puck-ic').style.color = p.connected ? 'var(--hn-text)' : 'var(--hn-faint)';
+  $('puck-s').style.setProperty('--c', old ? 'var(--hn-problem)' : p.connected ? 'var(--hn-ok)' : 'var(--hn-faint)');
+  $('puck-s').lastElementChild.textContent = old ? 'Update needed' : p.connected ? 'Connected' : 'Not connected';
+}
+
+// ---- state page ----
+function lookBody(key, look, id) {
+  const durs = (id === 'done' ? [] : [[0, UNTIL[id]]]).concat(DURATIONS);
+  const color = (look.color || '').toLowerCase();
+  return `<div class="fld"><span class="lab">Light</span><select class="sel" data-k="${key}.light">${LIGHTS.map(([k, l]) => `<option value="${k}"${k === look.light ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+    <div class="fld"><span class="lab">Colour</span><div class="swatches" data-color="${key}">${SWATCHES.map((c) => `<button type="button" style="--c:${c}" data-c="${c}" aria-label="Colour ${c}" aria-pressed="${c === color}"></button>`).join('')}<button type="button" class="custom" aria-label="Pick any colour" aria-pressed="${!SWATCHES.includes(color)}"></button><input type="color" value="${esc(color || '#ffffff')}" tabindex="-1"></div></div>
+    <div class="fld"><span class="lab">Brightness</span><div class="lvrow compact"><input type="range" min="1" max="100" value="${look.brightness}" data-k="${key}.brightness" aria-label="Brightness"><span class="v"></span></div></div>
+    <div class="fld"><span class="lab">Duration</span><select class="sel" data-k="${key}.duration" data-num>${durs.map(([k, l]) => `<option value="${k}"${Number(k) === look.duration ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`;
+}
+function soundBody(key, s) {
+  return `<div class="fld"><span class="lab">Sound</span><select class="sel" data-k="${key}.sound">${SOUNDS.map(([k, l]) => `<option value="${k}"${k === s.sound ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+    <div class="fld"><span class="lab">Volume</span><div class="lvrow compact"><input type="range" min="0" max="100" value="${s.volume}" data-k="${key}.volume" aria-label="Volume"><span class="v"></span></div></div>`;
+}
+function section(title, key, on, body, locked) {
+  return `<div class="ssec${on ? '' : ' off'}${locked ? ' locked' : ''}"><div class="row"><span class="gr"><b>${title}</b></span>${sw(`data-on="${key}" aria-label="${esc(title)}"`, on, locked)}</div><div class="body">${body}</div></div>`;
+}
+function renderState() {
+  if (!cur || !A) return;
+  const id = cur;
+  const a = A.states[id];
+  $('st-title').textContent = STATE_NAME[id];
+  $('st-dot').style.setProperty('--c', a.screen.color);
+  const pk = puckOn();
+  if (!pk && tab === 'p') tab = 'c';
+  $('tab-c').setAttribute('aria-selected', tab === 'c');
+  $('tab-p').setAttribute('aria-selected', tab === 'p');
+  $('tab-p').disabled = !pk;
+  $('tab-p').textContent = pk ? 'Puck' : 'Puck · not connected';
+  let html;
+  if (tab === 'c') {
+    html = section('Screen edges', 'screen', a.screen.on, lookBody('screen', a.screen, id));
+    if (a.sound) html += section('Sound', 'sound', a.sound.on, soundBody('sound', a.sound));
+  } else {
+    html = section('Light', 'puck', a.puck.on, lookBody('puck', a.puck, id));
+    if (a.puck_sound) html += section('Sound', 'puck_sound', a.puck_sound.on, soundBody('puck_sound', a.puck_sound));
+  }
+  $('st-body').innerHTML = html;
+  $('st-body').querySelectorAll('input[type=range]').forEach(paintRange);
+  fit();
 }
 function paintRange(r) {
   const p = ((r.value - r.min) / (r.max - r.min)) * 100;
@@ -135,226 +239,92 @@ function paintRange(r) {
   const v = r.parentNode.querySelector('.v');
   if (v) v.textContent = `${Math.round(r.value)}%`;
 }
-function tileText(id) {
-  const light = val(`${id}.light`);
-  if (light === undefined) return '';
-  if (light === 'off') return 'Off';
-  const snd = val(`${id}.sound`);
-  return label('light', light) + (snd && snd !== 'none' ? ` · ${label('sound', snd).toLowerCase()}` : '');
+function setField(path, value) {
+  const [part, field] = path.split('.');
+  A.states[cur][part][field] = value;
 }
-function renderHome() {
-  if (!st) return;
-  const o = out();
-  const pr = problem();
-  const shown = String(o.shown || 'idle').replace(/^test:/, '');
-  $('dev-ring').style.color = val(`${shown}.color`) || 'var(--hn-faint)';
-  $('dev-st').style.setProperty('--c', pr ? 'var(--hn-problem)' : 'var(--hn-ok)');
-  const glow = !!(st.glow && st.glow.enabled);
-  $('dev-name').textContent = onPuck() || st.puck.connected ? 'Puck' : 'This computer';
-  $('dev-text').textContent = pr ? pr.text : (onPuck() ? 'Connected' : (glow ? 'Screen glow and sound' : 'Sound'));
-  $('fix').hidden = !pr;
-  if (pr) {
-    $('fix-text').textContent = pr.fix;
-    $('fix-code').hidden = !pr.code;
-    $('fix-code').textContent = pr.code || '';
-    $('fix-btn').hidden = !pr.btn;
-    $('fix-btn').textContent = pr.btn || '';
+$('st-body').addEventListener('click', (e) => {
+  const s = e.target.closest('[data-on]');
+  if (s && !s.disabled) {
+    const part = s.dataset.on;
+    A.states[cur][part].on = s.getAttribute('aria-checked') !== 'true';
+    save(true);
+    renderState();
+    return;
   }
-  if (!busy) {
-    if (val('brightness') !== undefined) $('bright').value = val('brightness');
-    if (val('volume') !== undefined) $('vol').value = val('volume');
-  }
-  paintRange($('bright'));
-  paintRange($('vol'));
-  const m = (o.status && o.status.muted) || 'off';
-  const muted = m !== 'off';
-  $('mute').setAttribute('aria-pressed', muted);
-  $('mute').setAttribute('aria-label', muted ? 'Unmute sounds' : 'Mute sounds');
-  $('mute-ic').setAttribute('href', muted ? '#i-volx' : '#i-vol');
-  $('volrow').classList.toggle('off', muted);
-  const q = st.quiet || {};
-  let note = '';
-  if (q.active) note = `Quiet hours until ${q.to}: dimmed and muted.`;
-  else if (muted && m !== 'on') note = `Muted for ${m} more min.`;
-  $('lv-note').hidden = !note;
-  $('lv-note').textContent = note;
-  $('tiles').innerHTML = STATES.map((s) => {
-    const off = val(`${s.id}.light`) === 'off';
-    return `<button type="button" class="tile${off ? ' off' : ''}" data-state="${s.id}" style="--c:${esc(val(`${s.id}.color`) || 'var(--hn-' + s.id + ')')}">
-      <span class="lamp"></span><b>${esc(s.name)}</b><small>${esc(tileText(s.id))}</small></button>`;
-  }).join('');
-}
-let levelTimer;
-function level(key, el) {
-  paintRange(el);
-  busy = true;
-  clearTimeout(levelTimer);
-  levelTimer = setTimeout(async () => { await set(key, el.value); busy = false; }, 120);
-}
-$('bright').addEventListener('input', (e) => level('brightness', e.target));
-$('vol').addEventListener('input', (e) => level('volume', e.target));
-$('mute').onclick = async () => {
-  const muted = $('mute').getAttribute('aria-pressed') === 'true';
-  await act('mute', muted ? '0' : 'on');
-  refresh();
-};
-$('fix-btn').onclick = async () => {
-  const pr = problem();
-  if (!pr) return;
-  if (pr.btn === 'Copy') {
-    try { await navigator.clipboard.writeText(pr.code); toast('Copied'); } catch (e) { fail(e); }
-  } else {
-    go('v-settings');
-    updateFirmware();
-  }
-};
-
-// ---- state page ----
-function renderState() {
-  const s = cur;
-  const g = schema && (schema.groups || []).find((x) => x.id === s.id);
-  $('st-title').textContent = s.name;
-  $('st-desc').textContent = g ? g.desc : '';
-  const light = val(`${s.id}.light`) || 'solid';
-  const on = light !== 'off';
-  $('st-on').setAttribute('aria-checked', on);
-  $('st-body').classList.toggle('dim', !on);
-  const offered = list('light').map(([k]) => k).filter((k) => k !== 'off');
-  const lights = LIGHT_ORDER.filter((l) => offered.includes(l)).concat(offered.filter((l) => !LIGHT_ORDER.includes(l)));
-  if (!lights.length) lights.push(...LIGHT_ORDER);
-  if (on && !lights.includes(light)) lights.push(light);
-  $('fx').innerHTML = lights.map((l) => `<button type="button" data-fx="${esc(l)}" aria-pressed="${l === light}">
-    <svg viewBox="0 0 34 12">${FX_ICON[l] || '<circle cx="17" cy="6" r="4" fill="currentColor"/>'}</svg>${esc(LIGHT_SHORT[l] || label('light', l))}</button>`).join('');
-  const color = (val(`${s.id}.color`) || '').toLowerCase();
-  $('swatches').innerHTML = SWATCHES.map((c) => `<button type="button" style="--c:${c}" data-c="${c}" aria-label="Colour ${c}" aria-pressed="${c === color}"></button>`).join('')
-    + `<button type="button" class="custom" id="custom" aria-label="Pick any colour" aria-pressed="${!SWATCHES.includes(color)}"></button><input type="color" id="picker" value="${esc(color || '#ffffff')}" tabindex="-1">`;
-  const hasSound = val(`${s.id}.sound`) !== undefined;
-  $('st-sound-f').hidden = !hasSound;
-  if (hasSound) {
-    $('st-sound').innerHTML = list('sound').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
-    $('st-sound').value = val(`${s.id}.sound`);
-  }
-  $('st-prev-t').textContent = onPuck() ? 'Preview on puck' : 'Preview';
-  $('st-dur-f').hidden = s.id !== 'done';
-  if (s.id === 'done') {
-    $('st-dur').innerHTML = list('duration').filter(([k]) => k !== '0').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
-    $('st-dur').value = val('done.duration');
-  }
-  fit();
-}
-function lastLight(id) {
-  try { return localStorage.getItem(`hn.light.${id}`); } catch (e) { return null; }
-}
-function rememberLight(id, l) {
-  try { localStorage.setItem(`hn.light.${id}`, l); } catch (e) { /* not kept */ }
-}
-$('st-on').onclick = async () => {
-  const id = cur.id;
-  const light = val(`${id}.light`);
-  if (light && light !== 'off') {
-    rememberLight(id, light);
-    await set(`${id}.light`, 'off');
-  } else {
-    await set(`${id}.light`, lastLight(id) || DEFAULTS[id].light);
-  }
-  renderState();
-};
-$('fx').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-fx]');
-  if (!b) return;
-  await set(`${cur.id}.light`, b.dataset.fx);
-  renderState();
-});
-$('swatches').addEventListener('click', async (e) => {
+  const sw2 = e.target.closest('[data-color]');
   const b = e.target.closest('button');
-  if (!b) return;
-  if (b.id === 'custom') { $('picker').click(); return; }
-  await set(`${cur.id}.color`, b.dataset.c);
-  renderState();
-});
-$('swatches').addEventListener('change', async (e) => {
-  if (e.target.id !== 'picker') return;
-  await set(`${cur.id}.color`, e.target.value);
-  renderState();
-});
-$('st-sound').onchange = (e) => set(`${cur.id}.sound`, e.target.value);
-$('st-dur').onchange = (e) => set('done.duration', e.target.value);
-$('st-prev').onclick = async () => {
-  await act('test', cur.id);
-  toast(`Playing "${cur.name}" ${onPuck() ? 'on your puck' : 'on this computer'}`);
-};
-$('st-reset').onclick = async () => {
-  const d = DEFAULTS[cur.id];
-  for (const [k, v] of Object.entries(d)) {
-    if (val(`${cur.id}.${k}`) !== undefined && val(`${cur.id}.${k}`) !== v) await set(`${cur.id}.${k}`, v);
+  if (sw2 && b) {
+    if (b.classList.contains('custom')) { sw2.querySelector('input[type=color]').click(); return; }
+    setField(`${sw2.dataset.color}.color`, b.dataset.c);
+    save(true);
+    renderState();
   }
+});
+$('st-body').addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.type === 'color') {
+    setField(`${t.closest('[data-color]').dataset.color}.color`, t.value.toLowerCase());
+    save(true);
+    renderState();
+  } else if (t.dataset.k && t.tagName === 'SELECT') {
+    setField(t.dataset.k, 'num' in t.dataset ? Number(t.value) : t.value);
+    save(true);
+  }
+});
+$('st-body').addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.type === 'range' && t.dataset.k) {
+    paintRange(t);
+    setField(t.dataset.k, Number(t.value));
+    save(false);
+  }
+});
+$('tab-c').onclick = () => { tab = 'c'; renderState(); };
+$('tab-p').onclick = () => { if (puckOn()) { tab = 'p'; renderState(); } };
+$('st-prev').onclick = async () => {
+  try { await invoke('puck_action', { action: 'test', arg: cur }); toast(`Previewing "${STATE_NAME[cur]}"`); } catch (e) { fail(e); }
+};
+$('st-reset').onclick = () => {
+  if (!D || !D[cur]) return;
+  A.states[cur] = JSON.parse(JSON.stringify(D[cur]));
+  save(true);
   renderState();
   toast('Back to default');
 };
 
 // ---- settings ----
-function sw(id, on, disabled) {
-  return `<button type="button" class="sw" role="switch" aria-checked="${!!on}" data-agent="${esc(id)}" aria-label="${esc(AGENT_NAME[id] || id)}"${disabled ? ' disabled' : ''}></button>`;
-}
 function renderSettings() {
-  if (!st) return;
-  const rows = (st.agents || []).map((a) => {
-    const right = a.state === 'connected'
-      ? sw(a.id, a.enabled)
-      : '<button type="button" class="btn small" data-guide>Set up<svg class="i" style="width:13px;height:13px"><use href="#i-ext"/></svg></button>';
-    const small = a.state === 'connected' ? (a.enabled ? '' : 'Switched off') : 'Not set up yet';
-    return `<div class="row"><span class="agentmark">${esc(AGENT_MARK[a.id] || a.id.slice(0, 2))}</span><span class="gr">${esc(AGENT_NAME[a.id] || a.name)}${small ? `<small>${esc(small)}</small>` : ''}</span>${right}</div>`;
-  });
-  const c = st.cloud;
-  if (c) {
-    const text = c.enabled ? (c.error || CLOUD_TEXT[c.state] || '') : CLOUD_TEXT.off;
-    rows.splice(2, 0, `<div class="row"><span class="agentmark"><svg class="i" style="width:14px;height:14px"><use href="#i-cloud"/></svg></span><span class="gr">Cowork<small>${esc(text)}</small></span>${sw('claude-cloud', c.enabled)}</div>`);
-  }
-  $('agents').innerHTML = rows.join('');
-
-  $('glow-on').setAttribute('aria-checked', !!(st.glow && st.glow.enabled));
+  const g = st.glow || {};
+  $('glow-paused').hidden = g.enabled !== false;
+  $('g-screens').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === (g.screens || 'all')));
+  $('g-thick').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === (g.thickness || 'mid')));
+  $('g-full').setAttribute('aria-checked', g.skip_fullscreen !== false);
   const q = st.quiet || {};
   $('q-on').setAttribute('aria-checked', !!q.enabled);
   if (document.activeElement !== $('q-from') && q.from) $('q-from').value = q.from;
   if (document.activeElement !== $('q-to') && q.to) $('q-to').value = q.to;
-
-  if (!fwBusy) {
-    const p = st.puck;
-    $('fw-s').textContent = p.connected ? `Firmware ${fwNote ? `${p.fw} · ${fwNote}` : p.fw}` : 'Not connected. The puck is an optional desk light; plug it in any time.';
-    $('fw-check').hidden = !p.connected;
-  }
-
   const u = st.update || {};
   $('auto-update').setAttribute('aria-checked', !!u.auto);
-  let ver = `Version ${st.app.version}`;
+  let ver = st.app.version;
   if (u.checking) ver += ' · checking…';
   else if (u.last) ver += ` · ${u.last}`;
   $('app-ver').textContent = ver;
   $('app-restart').hidden = !u.ready;
   $('app-restart').textContent = u.ready ? `Restart to update to ${u.ready}` : '';
-
-  const p = st.puck || {};
-  const kv = [];
-  if (p.serial) kv.push(['Serial', p.serial]);
-  if (p.board) kv.push(['Board', p.board]);
-  if (p.port) kv.push(['USB', p.port]);
-  kv.push(['Agent port', (st.http && st.http.port) || '']);
-  $('kv').innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
-  $('restart').disabled = !p.connected;
+  $('kv').innerHTML = [['Agent port', (st.http && st.http.port) || ''], ['Version', st.app.version]]
+    .map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
   if (!$('danger').innerHTML) resetButton();
-  fit();
 }
-$('agents').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-agent]');
-  if (!b || b.disabled) return;
-  const on = b.getAttribute('aria-checked') !== 'true';
-  b.disabled = true;
-  try {
-    if (b.dataset.agent === 'claude-cloud') await invoke('cloud_set', { on });
-    else await invoke('agent_set', { id: b.dataset.agent, on });
-  } catch (err) { fail(err); }
+async function setGlow(patch) {
+  const options = { ...(st.glow || {}), ...patch };
+  try { await invoke('glow_set', { options }); } catch (e) { fail(e); }
   refresh();
-});
+}
+$('g-screens').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setGlow({ screens: b.dataset.v }); });
+$('g-thick').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setGlow({ thickness: b.dataset.v }); });
+$('g-full').onclick = () => setGlow({ skip_fullscreen: $('g-full').getAttribute('aria-checked') !== 'true' });
+$('glow-resume').onclick = () => setGlow({ enabled: true });
 async function saveQuiet() {
   const enabled = $('q-on').getAttribute('aria-checked') === 'true';
   try { await invoke('quiet_set', { enabled, from: $('q-from').value || '22:00', to: $('q-to').value || '08:00' }); } catch (e) { fail(e); }
@@ -365,15 +335,63 @@ $('q-on').onclick = () => {
   saveQuiet();
 };
 $('q-from').onchange = saveQuiet;
-$('glow-on').onclick = async () => {
-  const on = $('glow-on').getAttribute('aria-checked') !== 'true';
-  try { await invoke('glow_set', { on }); } catch (e) { fail(e); }
+$('q-to').onchange = saveQuiet;
+$('autostart').onclick = async () => {
+  const on = $('autostart').getAttribute('aria-checked') !== 'true';
+  try { await invoke('autostart_set', { on }); $('autostart').setAttribute('aria-checked', on); } catch (e) { fail(e); }
+};
+$('auto-update').onclick = async () => {
+  const on = $('auto-update').getAttribute('aria-checked') !== 'true';
+  try { await invoke('update_auto', { on }); } catch (e) { fail(e); }
   refresh();
 };
-$('q-to').onchange = saveQuiet;
+$('app-restart').onclick = (e) => { e.target.disabled = true; invoke('update_install').catch(fail); };
+$('clear').onclick = async () => { await invoke('clear_sessions'); toast('All alerts cleared'); refresh(); };
+$('log').onclick = () => invoke('open_log').catch(fail);
+$('adv').addEventListener('toggle', fit);
+function resetButton() {
+  $('danger').innerHTML = '<button type="button" class="btn red" data-reset>Reset lights and sounds</button>';
+  fit();
+}
+$('danger').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-reset]')) {
+    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Put every state\'s lights and sounds back to their defaults, on this computer and the puck?</p><div class="btns"><button type="button" class="btn red" data-yes>Reset</button><button type="button" class="btn" data-no>Cancel</button></div>';
+    fit();
+  } else if (e.target.closest('[data-yes]')) {
+    A.states = JSON.parse(JSON.stringify(D));
+    save(true);
+    toast('Lights and sounds reset');
+    resetButton();
+    render();
+  } else if (e.target.closest('[data-no]')) resetButton();
+});
 
+// ---- puck page ----
 let fwNote = '';
 let fwBusy = false;
+function renderPuck() {
+  const p = st.puck || {};
+  $('puck-on').hidden = !p.connected;
+  $('puck-off').hidden = !!p.connected;
+  if (!p.connected) return;
+  const shown = String(p.shown || 'idle').replace(/^test:/, '');
+  const a = A && A.states[shown];
+  $('dev-ring').style.color = a && a.puck.on ? a.puck.color : 'var(--hn-faint)';
+  const old = !p.compatible;
+  $('dev-st').style.setProperty('--c', old ? 'var(--hn-problem)' : 'var(--hn-ok)');
+  $('dev-text').textContent = old ? 'Firmware too old for this app' : 'Connected';
+  $('puck-test').disabled = old;
+  if (!fwBusy) {
+    $('fw-s').textContent = fwNote ? `${p.fw} · ${fwNote}` : p.fw || '';
+    $('fw-check').hidden = false;
+    if (old) { $('fw-go').hidden = false; $('fw-go').textContent = 'Update firmware'; }
+  }
+  $('pkv').innerHTML = [['Port', p.port], ['Board', p.board], ['Serial', p.serial]]
+    .filter(([, v]) => v).map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
+}
+$('puck-test').onclick = async () => {
+  try { await invoke('puck_action', { action: 'puck_test' }); toast('Testing the puck'); } catch (e) { fail(e); }
+};
 $('fw-check').onclick = async () => {
   fwBusy = true;
   $('fw-s').textContent = `${st.puck.fw} · checking…`;
@@ -388,9 +406,10 @@ $('fw-check').onclick = async () => {
     } else fwNote = 'up to date';
   } catch (e) { fwNote = `couldn't check: ${e}`; }
   fwBusy = false;
-  renderSettings();
+  renderPuck();
+  fit();
 };
-async function updateFirmware() {
+$('fw-go').onclick = async () => {
   fwBusy = true;
   $('fw-go').disabled = true;
   $('fw-check').disabled = true;
@@ -400,88 +419,86 @@ async function updateFirmware() {
     fwNote = '';
     $('fw-go').hidden = true;
     toast(`Updated to ${v}`);
-    schema = null;
   } catch (e) { fwNote = `update failed: ${e}`; }
   fwBusy = false;
   $('fw-go').disabled = false;
+  $('fw-check').disabled = false;
   refresh();
-}
-$('fw-go').onclick = updateFirmware;
+};
 listen('fw-progress', (ev) => { if (fwBusy) $('fw-s').textContent = ev.payload; });
+$('restart').onclick = async () => { try { await invoke('puck_action', { action: 'reboot' }); toast('Restarting the puck'); } catch (e) { fail(e); } };
+$('pclear').onclick = async () => { await invoke('clear_sessions'); toast('Light cleared'); refresh(); };
+$('padv').addEventListener('toggle', fit);
+$('see-puck').onclick = () => invoke('open_puck_page').catch(fail);
 
-$('autostart').onclick = async () => {
-  const on = $('autostart').getAttribute('aria-checked') !== 'true';
-  try { await invoke('autostart_set', { on }); $('autostart').setAttribute('aria-checked', on); } catch (e) { fail(e); }
-};
-$('auto-update').onclick = async () => {
-  const on = $('auto-update').getAttribute('aria-checked') !== 'true';
-  try { await invoke('update_auto', { on }); } catch (e) { fail(e); }
+// ---- main view actions ----
+$('agents').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-agent]');
+  if (!b || b.disabled) return;
+  const on = b.getAttribute('aria-checked') !== 'true';
+  b.disabled = true;
+  try {
+    if (b.dataset.agent === 'claude-cloud') await invoke('cloud_set', { on });
+    else await invoke('agent_set', { id: b.dataset.agent, on });
+  } catch (err) { fail(err); }
   refresh();
-};
-$('app-restart').onclick = (e) => { e.target.disabled = true; invoke('update_install').catch(fail); };
-$('restart').onclick = async () => { await act('reboot'); toast('Restarting the puck'); };
-$('clear').onclick = async () => { await invoke('clear_sessions'); toast('Light cleared'); refresh(); };
-$('log').onclick = () => invoke('open_log').catch(fail);
-$('adv').addEventListener('toggle', fit);
-function resetButton() {
-  $('danger').innerHTML = '<button type="button" class="btn red" data-reset>Reset all settings</button>';
-  fit();
-}
-$('danger').addEventListener('click', async (e) => {
-  if (e.target.closest('[data-reset]')) {
-    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Reset the lights and sounds to their defaults? Agents, quiet hours and app settings stay.</p><div class="btns"><button type="button" class="btn red" data-yes>Reset</button><button type="button" class="btn" data-no>Cancel</button></div>';
-    fit();
-  } else if (e.target.closest('[data-yes]')) {
-    await act('reset');
-    toast('Settings reset');
-    resetButton();
-    loadPuck();
-  } else if (e.target.closest('[data-no]')) resetButton();
 });
+$('fix-btn').onclick = async () => {
+  const pr = problem();
+  if (pr && pr.code) {
+    try { await navigator.clipboard.writeText(pr.code); toast('Copied'); } catch (e) { fail(e); }
+  }
+};
 
 // ---- navigation ----
 document.addEventListener('click', (e) => {
   const t = e.target;
   const g = t.closest('[data-go]');
-  if (g) { if (g.dataset.go === 'v-settings') renderSettings(); go(g.dataset.go); return; }
-  if (t.closest('[data-back]')) { renderHome(); go(homeView(), true); return; }
+  if (g) { go(g.dataset.go); return; }
+  if (t.closest('[data-back]')) { go('v-home', true); return; }
   if (t.closest('[data-guide]')) { invoke('open_setup_guide').catch(fail); return; }
   const tile = t.closest('[data-state]');
   if (tile) {
-    cur = STATES.find((s) => s.id === tile.dataset.state);
+    cur = tile.dataset.state;
+    tab = 'c';
     go('v-state');
-    renderState();
   }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (view === 'v-home') invoke('panel_hide');
-  else { renderHome(); go(homeView(), true); }
+  else go('v-home', true);
 });
 
 // ---- status ----
-let wasDevice = null;
+function render() {
+  if (!st) return;
+  if (view === 'v-home') renderHome();
+  else if (view === 'v-state') renderState();
+  else if (view === 'v-settings') renderSettings();
+  else if (view === 'v-puck') renderPuck();
+  fit();
+}
+let wasPuck = null;
 async function refresh() {
   try { st = await invoke('status'); } catch (e) { return; }
-  // Puck plugged in or out: its settings and lists replace this computer's (or back).
-  const device = out().device || '';
-  if (device !== wasDevice) {
-    const first = wasDevice === null;
-    wasDevice = device;
-    schema = null;
-    await loadPuck();
-    if (!first && view === 'v-state') go(homeView(), true);
+  // A puck plugged in or out: the Puck tab and page change.
+  if (puckOn() !== wasPuck) {
+    wasPuck = puckOn();
+    if (view === 'v-state' && !wasPuck) tab = 'c';
   }
-  renderHome();
-  if (view === 'v-settings') renderSettings();
+  // Don't redraw a state page under a slider being dragged.
+  if (view === 'v-state' && document.activeElement && document.activeElement.type === 'range') return;
+  render();
 }
 
 listen('changed', () => refresh());
-listen('panel-shown', () => {
-  // Opening the panel starts from the puck, with fresh values.
-  go(homeView());
-  refresh().then(loadPuck);
+listen('panel-shown', async () => {
+  // Opening the panel starts from the main view, with fresh values.
+  await loadAlerts();
+  go('v-home');
+  refresh();
 });
 invoke('autostart_get').then((on) => $('autostart').setAttribute('aria-checked', !!on)).catch(() => {});
-refresh().then(() => go(homeView()));
+loadAlerts().then(refresh).then(() => go('v-home'));
 setInterval(() => { if (!document.hidden) refresh(); }, 5000);

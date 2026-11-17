@@ -3,7 +3,7 @@
 
 use crate::ipc::{self, Incoming};
 use crate::link::{Link, LinkEvent, PuckTarget};
-use crate::{agents, firmware, here, liveness, log, paths, quiet};
+use crate::{agents, alerts, firmware, here, liveness, log, paths, quiet};
 use hn_core::event::Message;
 use hn_core::proto::{snap_line, Hello, SnapState, LEASE_S, RESEND_MS};
 use hn_core::sessions::Table;
@@ -76,10 +76,10 @@ struct Shared {
     updating: Option<String>,
     seen: agents::Seen,
     quiet: quiet::Quiet,
-    /// "This computer" (D-059): the output while no puck is connected.
+    /// "This computer" (D-059): screen edges and sound, driven like a puck.
     here: here::Here,
-    /// `here` holds the snapshot (no puck): cleared once a puck takes over.
-    here_live: bool,
+    /// The app's alert settings (D-059 redesign): the computer's and the puck's.
+    alerts: alerts::Alerts,
 }
 
 #[derive(Clone)]
@@ -96,6 +96,16 @@ pub struct Engine {
 
 /// Commands that only mean something to a real puck: never answered by "this computer".
 const PUCK_ONLY: [&str; 4] = ["BOOTSEL", "REBOOT", "SELFTEST", "HELLO"];
+/// Commands both outputs get: the puck (when there is one) and this computer.
+const BOTH: [&str; 3] = ["MUTE", "TEST", "FLASH"];
+
+/// `alerts.json`, next to the other app files.
+fn alerts_file(config: &Config) -> Option<PathBuf> {
+    config
+        .agents_file
+        .as_ref()
+        .map(|f| f.with_file_name("alerts.json"))
+}
 
 fn now_ms() -> u64 {
     hn_sim::now_ms()
@@ -124,12 +134,9 @@ impl Engine {
                 .as_ref()
                 .map(|f| f.with_file_name("quiet.json")),
         );
-        let here = here::Here::load(
-            config
-                .agents_file
-                .as_ref()
-                .map(|f| f.with_file_name("here.json")),
-        );
+        let alerts = alerts::Alerts::load(&alerts_file(&config));
+        let mut here = here::Here::new();
+        here.configure(&alerts.computer_settings());
         let engine = Self {
             config,
             link,
@@ -142,7 +149,7 @@ impl Engine {
                 seen,
                 quiet,
                 here,
-                here_live: false,
+                alerts,
             })),
             changes,
             link_events: Arc::new(bcast),
@@ -170,7 +177,7 @@ impl Engine {
         self.changes.subscribe()
     }
 
-    /// Sounds for the computer to play (D-059: only while no puck is connected).
+    /// Sounds for the computer to play (D-059), as the alert settings say.
     pub fn sounds(&self) -> tokio::sync::broadcast::Receiver<here::Sound> {
         self.sounds.subscribe()
     }
@@ -245,14 +252,7 @@ impl Engine {
                     tokio::spawn(async move {
                         // Let the link settle (it answers our HELLO first).
                         tokio::time::sleep(Duration::from_millis(300)).await;
-                        me.full_levels().await;
-                        // "This computer" takes the puck's look (D-059).
-                        if let Ok(all) = me.link.request("GET all").await {
-                            if let Ok(v) = serde_json::from_str::<Value>(&all) {
-                                me.shared.lock().unwrap().here.mirror(&v);
-                                me.changed();
-                            }
-                        }
+                        me.sync_puck().await;
                     });
                 }
             }
@@ -281,9 +281,8 @@ impl Engine {
                 if fx.flash_done {
                     if self.puck_ready() {
                         self.link.send("FLASH done");
-                    } else {
-                        let _ = self.here("FLASH done");
                     }
+                    let _ = self.here("FLASH done");
                 }
                 self.send_snapshot(false);
                 self.changed();
@@ -321,31 +320,131 @@ impl Engine {
         }
     }
 
-    /// Sends a command line to the puck (settings UI, `hn`), waits for the reply. With no puck
-    /// connected, "this computer" answers (D-059). Settings changed on a puck are copied there.
+    /// An `hn-usb/2` command from `hn` / the hub / the panel (app-events, unchanged):
+    /// - `SET k v`, `RESET`: the app's alert settings (both outputs), then pushed to the puck.
+    /// - `MUTE`, `TEST`, `FLASH`: this computer and the puck.
+    /// - `BOOTSEL`, `REBOOT`, `SELFTEST`, `HELLO`: the puck only.
+    /// - anything else (`GET`, `SCHEMA`, `STATUS`): the puck, or this computer without one.
     pub async fn puck(&self, line: impl Into<String>) -> Result<String, String> {
         let line = line.into();
         if line.contains('\n') || line.contains('\r') {
             return Err("bad command".into());
         }
-        let cmd = line.split_whitespace().next().unwrap_or("");
-        if !self.puck_ready() && !PUCK_ONLY.contains(&cmd) {
-            return self.here(&line);
+        let mut words = line.split_whitespace();
+        let cmd = words.next().unwrap_or("");
+        match cmd {
+            "SET" => {
+                let (Some(k), Some(v), None) = (words.next(), words.next(), words.next()) else {
+                    return Err("bad set".into());
+                };
+                // A puck that just connected gets its settings imported first.
+                self.sync_puck().await;
+                let mut a = self.alerts_get();
+                a.apply_key(k, v)?;
+                self.alerts_set(a).await.map(|_| "OK".into())
+            }
+            "RESET" => self
+                .alerts_set(alerts::Alerts {
+                    puck_imported: true,
+                    ..Default::default()
+                })
+                .await
+                .map(|_| "OK".into()),
+            _ if BOTH.contains(&cmd) => {
+                let here = self.here(&line);
+                if self.puck_ready() {
+                    self.link.request(line.clone()).await
+                } else {
+                    here
+                }
+            }
+            _ if PUCK_ONLY.contains(&cmd) || self.puck_ready() => self.link.request(line).await,
+            _ => self.here(&line),
         }
-        let r = self.link.request(line.clone()).await;
-        if r.is_ok() && cmd == "SET" {
-            self.shared.lock().unwrap().here.mirror_set(&line);
-        }
-        r
     }
 
-    /// Which output shows the state: `puck` or `computer`.
-    pub fn output(&self) -> &'static str {
-        if self.puck_ready() {
-            "puck"
-        } else {
-            "computer"
+    /// A command for the puck alone (e.g. its test light); fails without one.
+    pub async fn puck_only(&self, line: &str) -> Result<String, String> {
+        if !self.puck_ready() {
+            return Err("puck not connected".into());
         }
+        self.link.request(line).await
+    }
+
+    fn alerts_path(&self) -> Option<PathBuf> {
+        alerts_file(&self.config)
+    }
+
+    /// The app's alert settings.
+    pub fn alerts_get(&self) -> alerts::Alerts {
+        self.shared.lock().unwrap().alerts.clone()
+    }
+
+    /// New alert settings: checked, saved, applied to this computer and pushed to the puck.
+    pub async fn alerts_set(&self, mut a: alerts::Alerts) -> Result<(), String> {
+        a.check()?;
+        // Settings chosen while a puck is connected are the app's from now on.
+        if self.puck_ready() {
+            a.puck_imported = true;
+        }
+        a.save(&self.alerts_path())?;
+        {
+            let mut s = self.shared.lock().unwrap();
+            s.here.configure(&a.computer_settings());
+            s.alerts = a;
+        }
+        self.sync_puck().await;
+        self.changed();
+        Ok(())
+    }
+
+    /// Brings a connected puck to the app's settings (D-059: the app owns them). The first
+    /// time a puck connects, its own settings are imported instead (existing users). Only
+    /// changed keys are written.
+    async fn sync_puck(&self) {
+        if !self.puck_ready() {
+            return;
+        }
+        let Some(have) = self
+            .link
+            .request("GET all")
+            .await
+            .ok()
+            .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+        else {
+            return;
+        };
+        let imported = {
+            let mut s = self.shared.lock().unwrap();
+            if s.alerts.puck_imported {
+                false
+            } else {
+                s.alerts.import_puck(&have);
+                let a = s.alerts.clone();
+                s.here.configure(&a.computer_settings());
+                let _ = a.save(&self.alerts_path());
+                true
+            }
+        };
+        if imported {
+            log!("puck: its settings imported into the app's");
+        }
+        let (a, quiet) = {
+            let s = self.shared.lock().unwrap();
+            (s.alerts.clone(), s.quiet.status().active)
+        };
+        // In quiet hours the puck's master level stays dimmed.
+        let master = if quiet { quiet::dimmed(100) } else { 100 };
+        let changes = a.puck_changes(&have, master);
+        for line in &changes {
+            if let Err(e) = self.link.request(line.clone()).await {
+                log!("puck: {line} failed: {e}");
+            }
+        }
+        if !changes.is_empty() {
+            log!("puck: {} settings pushed", changes.len());
+        }
+        self.changed();
     }
 
     fn puck_ready(&self) -> bool {
@@ -355,21 +454,13 @@ impl Engine {
 
     /// Sends the snapshot if it changed, if 10 s passed, or when forced.
     fn send_snapshot(&self, force: bool) {
+        // This computer always shows it (its lease is renewed every second).
+        let line = snap_line(LEASE_S, &self.shared.lock().unwrap().table.snapshot());
+        let _ = self.here(&line);
         if !self.puck_ready() {
-            // No puck: "this computer" shows it. Its lease is renewed every second.
-            let line = {
-                let mut s = self.shared.lock().unwrap();
-                s.here_live = true;
-                snap_line(LEASE_S, &s.table.snapshot())
-            };
-            let _ = self.here(&line);
             return;
         }
         let mut s = self.shared.lock().unwrap();
-        if s.here_live {
-            s.here_live = false;
-            s.here.handle(&snap_line(LEASE_S, &[]), now_ms());
-        }
         let snap = s.table.snapshot();
         let due = s.last_sent.elapsed() >= Duration::from_millis(RESEND_MS - 300);
         if force || due || s.last_snap.as_ref() != Some(&snap) {
@@ -395,6 +486,7 @@ impl Engine {
                 s.quiet.status(),
             )
         };
+        let cloud_seen = self.shared.lock().unwrap().seen.last(crate::cloud::AGENT);
         let puck_status = if puck.as_ref().is_some_and(|p| p.hello.compatible()) {
             self.puck("STATUS")
                 .await
@@ -404,18 +496,13 @@ impl Engine {
             None
         };
         let shown = puck_status.as_ref().and_then(|p| p.get("shown").cloned());
-        // What shows the state now (D-059): the puck, or this computer (glow and sound).
-        let output = match &puck_status {
-            Some(st) => json!({"device": "puck", "shown": shown, "status": st}),
-            None => {
-                let st = self
-                    .here("STATUS")
-                    .ok()
-                    .and_then(|r| serde_json::from_str::<Value>(&r).ok())
-                    .unwrap_or(Value::Null);
-                json!({"device": "computer", "shown": st["shown"], "status": st})
-            }
-        };
+        // What this computer shows (screen edges, sound): always running (D-059).
+        let here = self
+            .here("STATUS")
+            .ok()
+            .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+            .unwrap_or(Value::Null);
+        let output = json!({"device": "computer", "shown": here["shown"], "status": here});
         json!({
             "ok": true,
             "app": {"version": APP_VERSION, "ipc": self.config.endpoint.display().to_string(), "log": log::path()},
@@ -423,6 +510,8 @@ impl Engine {
             // D-049: Claude would send its hooks to a proxy.
             "proxy": crate::proxy::current(self.config.claude_dir.as_deref()),
             "cloud": self.cloud.as_ref().map(|c| c.status()),
+            "cloud_last_seen": cloud_seen,
+            "now": now_ms(),
             "puck": match puck {
                 Some(p) => json!({
                     "connected": true, "port": p.port, "fw": p.hello.fw, "board": p.hello.board,
@@ -439,38 +528,6 @@ impl Engine {
             "setup_url": agents::SETUP_URL,
             "snapshot": snapshot.iter().map(|(id, st)| json!({"id": id, "state": st.as_str()})).collect::<Vec<_>>(),
         })
-    }
-
-    /// Turns the cloud link on or off (relay-api §3, D-030: opt-in).
-    /// D-055: brightness and volume are set once, on the puck's master levels. Each state's own
-    /// level is a share of the master (hn-usb/2 §5), so the app keeps them at 100. Only changed
-    /// fields are written (the puck saves to flash only on change).
-    pub async fn full_levels(&self) {
-        let Ok(all) = self.puck("GET all").await else {
-            return;
-        };
-        let Ok(v) = serde_json::from_str::<Value>(&all) else {
-            return;
-        };
-        for st in ["needs", "done", "working", "idle"] {
-            for f in ["brightness", "volume"] {
-                let key = format!("{st}.{f}");
-                let cur = match &v[&key] {
-                    Value::Number(n) => n.as_u64(),
-                    Value::String(s) => s.parse().ok(),
-                    _ => None, // idle has no volume
-                };
-                if cur.is_some_and(|c| c != 100) {
-                    match self.puck(format!("SET {key} 100")).await {
-                        Ok(_) => log!(
-                            "puck: {key} {} -> 100 (levels live on the master)",
-                            cur.unwrap()
-                        ),
-                        Err(e) => log!("puck: SET {key} failed: {e}"),
-                    }
-                }
-            }
-        }
     }
 
     /// Switches an agent on or off (D-055). Off: its sessions stop lighting the puck at once.
@@ -512,32 +569,42 @@ impl Engine {
         match action {
             quiet::Action::None => {}
             quiet::Action::Enter { mute_min } => {
-                let b = self
-                    .puck("GET brightness")
-                    .await
-                    .ok()
-                    .and_then(|r| quiet::level_of(&r, "brightness"));
-                let Some(b) = b else { return };
-                let dim = quiet::dimmed(b);
-                let _ = self.puck(format!("SET brightness {dim}")).await;
+                // Sounds off everywhere; the puck's light dimmed (the screen edges dim in the
+                // app, from `quiet.active`).
                 let _ = self.puck(format!("MUTE {mute_min}")).await;
+                let (mut b, mut dim) = (100, quiet::dimmed(100));
+                if self.puck_ready() {
+                    if let Some(now) = self
+                        .link
+                        .request("GET brightness")
+                        .await
+                        .ok()
+                        .and_then(|r| quiet::level_of(&r, "brightness"))
+                    {
+                        (b, dim) = (now, quiet::dimmed(now));
+                        let _ = self.link.request(format!("SET brightness {dim}")).await;
+                    }
+                }
                 self.shared.lock().unwrap().quiet.entered(b, dim);
-                log!("quiet hours: on (brightness {b} -> {dim}, muted {mute_min} min)");
+                log!("quiet hours: on (puck brightness {b} -> {dim}, muted {mute_min} min)");
                 self.changed();
             }
             quiet::Action::Leave { restore } => {
-                let now = self
-                    .puck("GET brightness")
-                    .await
-                    .ok()
-                    .and_then(|r| quiet::level_of(&r, "brightness"));
-                // Put the level back unless the user changed it meanwhile.
-                if let (Some((saved, dim)), Some(now)) = (restore, now) {
-                    if now == dim {
-                        let _ = self.puck(format!("SET brightness {saved}")).await;
+                if self.puck_ready() {
+                    let now = self
+                        .link
+                        .request("GET brightness")
+                        .await
+                        .ok()
+                        .and_then(|r| quiet::level_of(&r, "brightness"));
+                    // Put the level back unless the user changed it meanwhile.
+                    if let (Some((saved, dim)), Some(now)) = (restore, now) {
+                        if now == dim {
+                            let _ = self.link.request(format!("SET brightness {saved}")).await;
+                        }
                     }
                 }
-                let muted = self.puck("STATUS").await.ok().and_then(|r| {
+                let muted = self.here("STATUS").ok().and_then(|r| {
                     serde_json::from_str::<Value>(&r).ok()?["muted"]
                         .as_str()
                         .map(String::from)

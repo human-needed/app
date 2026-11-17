@@ -13,20 +13,15 @@ mod sound;
 mod tray;
 mod updater;
 
-use hn_engine::{agents, log, paths, quiet, Config, Engine};
+use hn_engine::{agents, alerts, log, paths, quiet, Config, Engine};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 type R<T> = Result<T, String>;
 
-/// The panel changed a puck setting: the tray re-reads the colours.
+/// The panel changed the alert settings: the tray re-reads the colours.
 pub static COLOURS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
-
-fn json_reply(r: R<String>) -> R<Value> {
-    let line = r?;
-    serde_json::from_str(&line).map_err(|_| format!("unexpected reply: {line}"))
-}
 
 #[tauri::command]
 async fn status(
@@ -36,20 +31,38 @@ async fn status(
 ) -> R<Value> {
     let mut st = engine.status().await;
     st["update"] = serde_json::to_value(updates.status()).unwrap_or_default();
-    st["glow"] = serde_json::json!({ "enabled": glow::enabled(&app) });
+    st["glow"] = serde_json::to_value(glow::options(&app)).unwrap_or_default();
     Ok(st)
 }
 
-/// What the screen-edge glow shows now (the glow page asks when it loads).
+/// What this glow window shows now (the glow page asks when it loads).
 #[tauri::command]
-fn glow_spec(app: AppHandle) -> glow::Spec {
-    glow::current(&app)
+fn glow_spec(app: AppHandle, window: tauri::Window) -> glow::Spec {
+    glow::current(&app, window.label())
 }
 
-/// Screen-edge glow on or off (D-059).
+/// Screen-edge options: paused or not, screens, thickness, skip full-screen apps.
 #[tauri::command]
-fn glow_set(app: AppHandle, on: bool) -> R<()> {
-    glow::set_enabled(&app, on)
+fn glow_set(app: AppHandle, options: glow::Options) -> R<()> {
+    glow::set_options(&app, options)?;
+    let _ = app.emit("changed", ());
+    Ok(())
+}
+
+/// The alert settings, with each state's defaults (for the "Default" button).
+#[tauri::command]
+fn alerts_get(engine: State<'_, Engine>) -> Value {
+    serde_json::json!({
+        "alerts": engine.alerts_get(),
+        "defaults": alerts::Alerts::default().states,
+    })
+}
+
+#[tauri::command]
+async fn alerts_set(engine: State<'_, Engine>, alerts: alerts::Alerts) -> R<()> {
+    engine.alerts_set(alerts).await?;
+    COLOURS_CHANGED.notify_one();
+    Ok(())
 }
 
 #[tauri::command]
@@ -67,30 +80,11 @@ async fn update_install(app: AppHandle) -> R<()> {
     updater::install(&app).await
 }
 
-#[tauri::command]
-async fn puck_schema(engine: State<'_, Engine>) -> R<Value> {
-    json_reply(engine.puck("SCHEMA").await)
-}
-
-#[tauri::command]
-async fn puck_settings(engine: State<'_, Engine>) -> R<Value> {
-    json_reply(engine.puck("GET all").await)
-}
-
 fn safe_token(s: &str) -> R<&str> {
     if s.is_empty() || s.len() > 64 || s.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err("bad value".into());
     }
     Ok(s)
-}
-
-#[tauri::command]
-async fn puck_set(engine: State<'_, Engine>, key: String, value: String) -> R<()> {
-    engine
-        .puck(format!("SET {} {}", safe_token(&key)?, safe_token(&value)?))
-        .await?;
-    COLOURS_CHANGED.notify_one();
-    Ok(())
 }
 
 #[tauri::command]
@@ -100,13 +94,8 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
             format!("TEST {st}")
         }
         ("mute", Some(m)) => format!("MUTE {}", safe_token(m)?),
-        ("reset", None) => {
-            engine.puck("RESET").await?;
-            // Levels live on the master (D-055): put the per-state ones back to 100.
-            engine.full_levels().await;
-            COLOURS_CHANGED.notify_one();
-            return Ok(());
-        }
+        // The Puck page's Test: the puck's own hello light, nothing on the screen.
+        ("puck_test", None) => return engine.puck_only("TEST hello").await.map(|_| ()),
         ("reboot", None) => "REBOOT".into(),
         _ => return Err("unknown action".into()),
     };
@@ -118,7 +107,7 @@ async fn cloud_set(engine: State<'_, Engine>, on: bool) -> R<()> {
     engine.cloud_set(on).await
 }
 
-/// Per-agent "lights the puck" switch (D-055).
+/// Per-agent switch (D-055): its events alert you or not.
 #[tauri::command]
 fn agent_set(engine: State<'_, Engine>, id: String, on: bool) -> R<()> {
     engine.agent_set(&id, on)
@@ -172,6 +161,15 @@ fn open_setup_guide() -> R<()> {
     open_path(std::path::Path::new(agents::SETUP_URL))
 }
 
+/// "Don't have one? See the Puck" (fixed URL).
+#[tauri::command]
+fn open_puck_page() -> R<()> {
+    open_path(std::path::Path::new(PUCK_URL))
+}
+
+/// Where the puck is described (WS-WEB).
+const PUCK_URL: &str = "https://human-needed.com/";
+
 #[tauri::command]
 fn autostart_get(app: AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
@@ -215,9 +213,8 @@ fn main() {
             status,
             glow_spec,
             glow_set,
-            puck_schema,
-            puck_settings,
-            puck_set,
+            alerts_get,
+            alerts_set,
             puck_action,
             clear_sessions,
             cloud_set,
@@ -228,6 +225,7 @@ fn main() {
             fw_check,
             fw_update,
             open_setup_guide,
+            open_puck_page,
             autostart_get,
             autostart_set,
             open_log,

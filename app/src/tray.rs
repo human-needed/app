@@ -215,14 +215,13 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                 .as_str()
                 .unwrap_or("")
                 .to_string();
-            // The output's settings: when it changes (puck plugged in or out), then every 30 s
-            // (the panel may change them).
+            // This computer's settings (the app's alerts): at start and when the panel changes
+            // them, at least every 30 s.
             let stale = colours_at.is_none_or(|t| t.elapsed().as_secs() >= 30);
             if output != was_output || stale {
-                if let Ok(r) = engine.puck("GET all").await {
-                    colours = serde_json::from_str(&r).unwrap_or(Value::Null);
-                    colours_at = Some(std::time::Instant::now());
-                }
+                colours = serde_json::to_value(engine.alerts_get().computer_settings())
+                    .unwrap_or(Value::Null);
+                colours_at = Some(std::time::Instant::now());
             }
             was_output = output;
             let now = look_of(&status, &colours);
@@ -236,7 +235,12 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                 crate::glow::sync(&app);
                 screens_at = Some(std::time::Instant::now());
             }
-            crate::glow::show(&app, crate::glow::spec_of(&status, &colours));
+            let o = crate::glow::options(&app);
+            let elapsed = crate::glow::elapsed(&app, &status);
+            crate::glow::show(
+                &app,
+                crate::glow::spec_of(&status, &colours, elapsed, &o.thickness),
+            );
             let _ = glow.set_checked(crate::glow::enabled(&app));
             let _ = app.emit("changed", ());
             // Wake on any change, and at least every 5 s (puck STATUS, mute timers).

@@ -11,6 +11,11 @@ All notable changes to the HumanNeeded app. The format follows
   chimes. Turn the glow on or off from the tray menu or Settings.
 
 ### Changed
+- New panel, built around your agents: each agent's last signal and switch, four state cards,
+  and a Puck page. Each state has a Computer tab (screen edges, sound) and a Puck tab (light,
+  sound). Settings gain screen-edge options: which screens, thickness, skip full-screen apps.
+- The app now owns the light and sound settings and sends them to the puck. The first time
+  your puck connects, its own settings are kept.
 - The app is free and open source under the GNU GPL v3.0 or later.
 - New README, contributing guide (with DCO sign-off), security policy, and issue and pull
   request templates.
