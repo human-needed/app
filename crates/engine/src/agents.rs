@@ -112,9 +112,9 @@ impl Seen {
         std::fs::write(f, Value::Object(m).to_string()).map_err(|e| e.to_string())
     }
 
-    /// An event from `agent` arrived at `now`.
+    /// An event from `agent` arrived at `now`. Cloud chats (`claude-cloud`) count too.
     pub fn saw(&mut self, agent: &str, now: u64) {
-        if !AGENTS.iter().any(|(id, _)| *id == agent) {
+        if !AGENTS.iter().any(|(id, _)| *id == agent) && agent != crate::cloud::AGENT {
             return;
         }
         self.last.insert(agent.to_string(), now);
@@ -137,6 +137,11 @@ impl Seen {
         if std::fs::write(&tmp, body).is_ok() && std::fs::rename(&tmp, file).is_ok() {
             self.saved = self.last.clone();
         }
+    }
+
+    /// When `agent` last sent anything.
+    pub fn last(&self, agent: &str) -> Option<u64> {
+        self.last.get(agent).copied()
     }
 
     pub fn list(&self, now: u64) -> Vec<AgentStatus> {

@@ -13,6 +13,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
   -webkit-mask-image: var(--edge);
   mask-image: var(--edge);
 }
+#g[data-t="thin"] { --t: clamp(12px, 1.7vmin, 34px); }
+#g[data-t="wide"] { --t: clamp(36px, 5.5vmin, 110px); }
 #c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
 
 .breathe #c { animation: breathe 4s ease-in-out infinite; }

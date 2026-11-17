@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! D-055 engine features against the simulated puck: per-state levels held at 100, per-agent
+//! Engine features against the simulated puck: settings imported then pushed (D-059), per-agent
 //! switches, quiet hours.
 
 use hn_engine::{quiet, Config, Engine, PuckTarget};
@@ -95,24 +95,27 @@ async fn wait<F: Fn() -> bool>(what: &str, f: F) {
     panic!("never: {what}");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn per_state_levels_are_held_at_full() {
-    let r = rig("levels").await;
-    // The sim's idle glow starts at 10% of the master level.
-    let mut ok = false;
-    for _ in 0..40 {
-        if get(&r.engine, "idle.brightness").await == "100" {
-            ok = true;
-            break;
+/// Waits until the app has pushed its settings to the puck (master brightness 100).
+async fn synced(e: &Engine) {
+    for _ in 0..60 {
+        if get(e, "brightness").await == "100" {
+            return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(ok, "idle.brightness never set to 100");
-    for k in ["needs.volume", "done.brightness", "working.brightness"] {
-        assert_eq!(get(&r.engine, k).await, "100", "{k}");
-    }
-    // The master levels are the user's and stay as they were.
-    assert_eq!(get(&r.engine, "brightness").await, "60");
+    panic!("never synced");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn first_connect_imports_the_puck_then_levels_live_on_each_state() {
+    let r = rig("levels").await;
+    synced(&r.engine).await;
+    // The sim's idle glow was 10% of a 60% master: imported as 6%, master now 100.
+    assert_eq!(get(&r.engine, "idle.brightness").await, "6");
+    assert_eq!(get(&r.engine, "needs.volume").await, "70");
+    let a = r.engine.alerts_get();
+    assert!(a.puck_imported);
+    assert_eq!(a.states["idle"].puck.brightness, 6);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -148,6 +151,7 @@ async fn switched_off_agent_does_not_light_the_puck() {
 #[tokio::test(flavor = "multi_thread")]
 async fn quiet_hours_dim_mute_and_restore() {
     let r = rig("quiet").await;
+    synced(&r.engine).await;
     let now = quiet::local_minutes();
     let hm = |m: u32| format!("{:02}:{:02}", (m % 1440) / 60, m % 60);
     // A window around now.
@@ -159,7 +163,7 @@ async fn quiet_hours_dim_mute_and_restore() {
         })
         .await
         .unwrap();
-    assert_eq!(get(&r.engine, "brightness").await, "15");
+    assert_eq!(get(&r.engine, "brightness").await, "25");
     let st = r.engine.status().await;
     assert_eq!(st["quiet"]["active"], true);
     let muted = st["puck"]["status"]["muted"].as_str().unwrap().to_string();
@@ -169,7 +173,7 @@ async fn quiet_hours_dim_mute_and_restore() {
     let mut q = r.engine.quiet_get();
     q.enabled = false;
     r.engine.quiet_set(q).await.unwrap();
-    assert_eq!(get(&r.engine, "brightness").await, "60");
+    assert_eq!(get(&r.engine, "brightness").await, "100");
     let st = r.engine.status().await;
     assert_eq!(st["quiet"]["active"], false);
     assert_eq!(st["puck"]["status"]["muted"], "off");

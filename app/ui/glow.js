@@ -16,6 +16,7 @@
     g.style.setProperty('--c', /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#ffffff');
     const light = LIGHTS.includes(s.light) ? s.light : 'solid';
     if (g.className !== light) g.className = light;
+    g.dataset.t = ['thin', 'wide'].includes(s.thickness) ? s.thickness : 'mid';
     g.style.opacity = String(Math.max(0, Math.min(1, Number(s.level) || 0)));
   }
 

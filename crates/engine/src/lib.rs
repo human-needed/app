@@ -13,10 +13,12 @@
 //! - [`engine`]: the loop tying them together (session table → SNAP every 10 s / on change).
 //! - [`firmware`]: `latest.json` → SHA-256 → `BOOTSEL` → copy .uf2 to RPI-RP2.
 //! - [`agents`]: read-only per-agent status (D-054: the user installs the plugins).
-//! - [`here`]: "this computer" (D-059): the output while no puck is connected.
+//! - [`alerts`]: the app's alert settings per state, for this computer and the puck (D-059).
+//! - [`here`]: "this computer" (D-059): screen edges and sound, driven like a puck.
 //! - [`tones`]: the puck's sounds rendered for the computer's speakers.
 
 pub mod agents;
+pub mod alerts;
 pub mod cloud;
 pub mod engine;
 pub mod firmware;

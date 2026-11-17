@@ -12,91 +12,103 @@
   <symbol id="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-dasharray="4.983 1.3" stroke-dashoffset="-0.65" transform="rotate(-90 12 12)"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
   <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
-  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></symbol>
-  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
-  <symbol id="i-volx" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
-  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v5H5V7h5"/></symbol>
 </svg>
 
 <div id="panel">
-  <!-- HOME -->
-  <section class="view" id="v-home" aria-label="Puck">
+  <!-- MAIN: agents, states, puck, settings -->
+  <section class="view" id="v-home" aria-label="HumanNeeded">
     <div class="brand"><svg class="mark" aria-hidden="true"><use href="#ring"/></svg><span class="wordmark">HUMAN_NEEDED</span></div>
     <div class="pad">
-      <div class="device">
-        <svg class="ring" id="dev-ring"><use href="#ring"/></svg>
-        <div class="gr"><b id="dev-name">Puck</b><span class="st" id="dev-st"><i></i><span id="dev-text">Connected</span></span></div>
-      </div>
       <div class="fix" id="fix" hidden>
+        <b id="fix-title"></b>
         <span id="fix-text"></span>
         <span class="mono" id="fix-code" hidden></span>
         <button type="button" class="btn pri" id="fix-btn" hidden></button>
       </div>
-      <div class="lv">
-        <div class="lvrow"><span class="ic"><svg class="i"><use href="#i-sun"/></svg></span><input type="range" id="bright" min="0" max="100" value="60" aria-label="Brightness"><span class="v"></span></div>
-        <div class="lvrow" id="volrow"><button type="button" class="ic" id="mute" aria-pressed="false" aria-label="Mute sounds"><svg class="i"><use id="mute-ic" href="#i-vol"/></svg></button><input type="range" id="vol" min="0" max="100" value="70" aria-label="Volume"><span class="v"></span></div>
-      </div>
-      <p class="note" id="lv-note" hidden></p>
+      <div class="agents" id="agents"></div>
+      <p class="note" id="mute-note" hidden></p>
     </div>
     <div class="pad hr">
       <p class="sh">When an agent is…</p>
       <div class="tiles" id="tiles"></div>
     </div>
-    <button type="button" class="navrow hr" data-go="v-settings"><svg class="i muted"><use href="#i-gear"/></svg><span class="gr">Settings</span><span class="s">Agents, glow, quiet hours</span><svg class="i muted"><use href="#i-next"/></svg></button>
+    <button type="button" class="navrow hr" data-go="v-puck"><svg class="i" id="puck-ic"><use href="#ring"/></svg><span class="gr">Puck</span><span class="s dotted" id="puck-s"><i></i><span></span></span><svg class="i muted"><use href="#i-next"/></svg></button>
+    <button type="button" class="navrow hr" data-go="v-settings"><svg class="i muted"><use href="#i-gear"/></svg><span class="gr">Settings</span><svg class="i muted"><use href="#i-next"/></svg></button>
   </section>
 
-
-  <!-- STATE -->
+  <!-- STATE: Computer / Puck tabs -->
   <section class="view" id="v-state" aria-label="State">
-    <div class="vh"><button type="button" class="ib" data-back aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button><b id="st-title"></b><button type="button" class="sw" role="switch" aria-checked="true" id="st-on" aria-label="Light up for this state"></button></div>
-    <div class="pad" id="st-body">
-      <p class="sh" id="st-desc"></p>
-      <div class="fld"><span class="lab">Light</span><div class="seg" role="group" aria-label="Light" id="fx"></div></div>
-      <div class="fld"><span class="lab">Colour</span><div class="swatches" role="group" aria-label="Colour" id="swatches"></div></div>
-      <div class="fld" id="st-sound-f"><span class="lab">Sound</span><select class="sel" id="st-sound" aria-label="Sound"></select></div>
-      <div class="fld" id="st-dur-f" hidden><span class="lab">Stay on for</span><select class="sel" id="st-dur" aria-label="Stay on for"></select></div>
+    <div class="vh"><button type="button" class="ib" data-back aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button><b id="st-title"></b><span class="sdot" id="st-dot"></span></div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-c" aria-selected="true">Computer</button>
+      <button type="button" role="tab" id="tab-p" aria-selected="false">Puck</button>
     </div>
-    <div class="foot"><button type="button" class="btn" id="st-reset">Default</button><button type="button" class="btn pri" id="st-prev"><svg class="i" style="width:14px;height:14px"><use href="#i-play"/></svg><span id="st-prev-t">Preview</span></button></div>
+    <div id="st-body"></div>
+    <div class="foot"><button type="button" class="btn" id="st-reset">Default</button><button type="button" class="btn pri" id="st-prev"><svg class="i" style="width:14px;height:14px"><use href="#i-play"/></svg>Preview</button></div>
   </section>
 
   <!-- SETTINGS -->
   <section class="view" id="v-settings" aria-label="Settings">
     <div class="vh"><button type="button" class="ib" data-back aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button><b>Settings</b></div>
-    <div class="scroll" id="settings-scroll">
+    <div class="scroll">
       <div class="grp">
-        <h4>Agents</h4>
-        <div id="agents"></div>
+        <h4>Screen edges</h4>
+        <p class="note" id="glow-paused" hidden>Paused from the tray menu. <button type="button" class="linkbtn" id="glow-resume">Resume</button></p>
+        <div class="row"><span class="gr">Screens</span><span class="segw"><div class="seg two" role="group" aria-label="Screens" id="g-screens"><button type="button" data-v="all">All</button><button type="button" data-v="main">Main</button></div></span></div>
+        <div class="row"><span class="gr">Thickness</span><span class="segw wide"><div class="seg three" role="group" aria-label="Thickness" id="g-thick"><button type="button" data-v="thin">Thin</button><button type="button" data-v="mid">Mid</button><button type="button" data-v="wide">Wide</button></div></span></div>
+        <div class="row"><span class="gr">Skip full-screen apps<small>No glow over games and videos</small></span><button type="button" class="sw" role="switch" aria-checked="true" id="g-full" aria-label="Skip full-screen apps"></button></div>
       </div>
       <div class="grp">
-        <div class="row"><span class="gr">Screen edge glow<small>The edges of every screen light up in the state's colour</small></span><button type="button" class="sw" role="switch" aria-checked="true" id="glow-on" aria-label="Screen edge glow"></button></div>
-      </div>
-      <div class="grp">
-        <div class="row"><span class="gr">Quiet hours<small>Sounds off and the light dimmed; every state still shows</small></span><button type="button" class="sw" role="switch" aria-checked="false" id="q-on" aria-label="Quiet hours"></button></div>
+        <div class="row"><span class="gr">Quiet hours<small>No sounds, softer light; every state still shows</small></span><button type="button" class="sw" role="switch" aria-checked="false" id="q-on" aria-label="Quiet hours"></button></div>
         <div class="time"><label>From<input type="time" id="q-from" value="22:00"></label><label>To<input type="time" id="q-to" value="08:00"></label></div>
-      </div>
-      <div class="grp">
-        <h4>Puck</h4>
-        <div class="row"><span class="gr" id="fw-s"></span></div>
-        <div class="two"><button type="button" class="btn" id="fw-check">Check for update</button><button type="button" class="btn pri" id="fw-go" hidden></button></div>
       </div>
       <div class="grp">
         <h4>App</h4>
         <div class="row"><span class="gr">Start when I sign in</span><button type="button" class="sw" role="switch" aria-checked="false" id="autostart" aria-label="Start when I sign in"></button></div>
-        <div class="row"><span class="gr">Update the app automatically<small id="app-ver"></small></span><button type="button" class="sw" role="switch" aria-checked="true" id="auto-update" aria-label="Update the app automatically"></button></div>
+        <div class="row"><span class="gr">Update automatically<small class="mono" id="app-ver"></small></span><button type="button" class="sw" role="switch" aria-checked="true" id="auto-update" aria-label="Update automatically"></button></div>
         <button type="button" class="btn pri" id="app-restart" hidden></button>
       </div>
       <div class="grp">
         <details class="adv" id="adv"><summary><svg class="i" style="width:13px;height:13px"><use href="#i-next"/></svg>Advanced</summary>
           <div class="in">
             <div class="kv" id="kv"></div>
-            <div class="btns"><button type="button" class="btn" id="restart">Restart puck</button><button type="button" class="btn" id="clear">Clear the light</button><button type="button" class="btn" id="log">Open log</button></div>
+            <div class="btns"><button type="button" class="btn" id="clear">Clear all alerts</button><button type="button" class="btn" id="log">Open log</button><button type="button" class="btn" data-guide>Setup guides</button></div>
             <div id="danger" style="padding-top:6px"></div>
           </div>
         </details>
       </div>
+    </div>
+  </section>
+
+  <!-- PUCK -->
+  <section class="view" id="v-puck" aria-label="Puck">
+    <div class="vh"><button type="button" class="ib" data-back aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button><b>Puck</b></div>
+    <div id="puck-on">
+      <div class="pad">
+        <div class="device"><svg class="ring" id="dev-ring"><use href="#ring"/></svg><div class="gr"><b>Puck</b><span class="st" id="dev-st"><i></i><span id="dev-text">Connected</span></span></div><button type="button" class="btn small" id="puck-test"><svg class="i" style="width:13px;height:13px"><use href="#i-play"/></svg>Test</button></div>
+      </div>
+      <div class="grp">
+        <h4>Firmware</h4>
+        <div class="row"><span class="gr mono" id="fw-s"></span><button type="button" class="btn small" id="fw-check">Check for update</button></div>
+        <button type="button" class="btn pri" id="fw-go" hidden></button>
+      </div>
+      <div class="grp">
+        <details class="adv" id="padv"><summary><svg class="i" style="width:13px;height:13px"><use href="#i-next"/></svg>Advanced</summary>
+          <div class="in">
+            <div class="kv" id="pkv"></div>
+            <div class="btns"><button type="button" class="btn" id="restart">Restart puck</button><button type="button" class="btn" id="pclear">Clear the light</button></div>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="empty" id="puck-off">
+      <svg class="ring"><use href="#ring"/></svg>
+      <b>Plug in your Puck</b>
+      <p>Use a USB-C data cable. Its light and sound for each state are on the state's Puck tab.</p>
+      <button type="button" class="linkbtn" id="see-puck">Don't have one? See the Puck</button>
     </div>
   </section>
 

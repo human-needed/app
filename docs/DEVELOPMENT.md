@@ -32,25 +32,40 @@ Not yet on macOS: liveness for Codex/Cursor uses the
 2 h fallback (the process lookup is Windows-only). Start at login and the puck's USB port are
 untested there.
 
-### Tray panel (D-055)
+### Tray panel (D-059 app-first, WS-DESIGN rounds 14–16)
 
 No main window. Left-click the tray / menu-bar icon for the panel (it closes when you click
-elsewhere); right-click for **Mute for 1 hour** and **Quit**. The icon is a ring in the colour the
-puck shows, with a grey dot when muted and a red dot when something needs fixing.
+elsewhere); right-click for **Screen edge glow** (pause), **Mute for 1 hour** and **Quit**. The
+icon is a ring in the shown state's colour, with a grey dot when muted and a red dot when
+something needs fixing (port in use, proxy, puck firmware too old). No puck is not a problem.
 
-- Home: the puck's line ("Puck · Connected", or the problem with its fix), master brightness and
-  volume with one mute button, and four state tiles (light, colour, sound, "stay on for" for
-  Done, Default, Preview on puck). Unplugged: only "Plug in your puck".
-- Settings: agents that light the puck (per-agent switch; Cowork = the cloud link), quiet hours,
-  firmware check/update, start at sign-in, auto-update, Advanced.
-- Per-state brightness/volume are not in the UI: the app keeps them at 100 (a share of the master
-  level, hn-usb/2 §5), so the two master sliders are the only levels.
-- Quiet hours: between From and To (local time) the app mutes the puck and dims it to a quarter of
-  its brightness, then puts the level back (unless you changed it). Kept in `quiet.json`.
-- Agent switches are kept in `agent-switches.json`; a switched-off agent is still shown as
-  connected but its events don't light the puck.
+- Main: one row per agent (logo, last signal such as "Needs you · 1 min ago", on/off switch, or
+  **Set up**; Cowork's switch is the cloud link), four state cards, then **Puck** (Connected / Not
+  connected) and **Settings**.
+- State page: two tabs. **Computer** has Screen edges (light, colour, brightness, duration) and
+  Sound; **Puck** has Light and Sound, and is disabled without a puck. Each section has a switch;
+  a switched-off section stays visible, dimmed. Only Needs you and Done have sounds (the
+  firmware never plays one for Working or Idle). **Default** and **Preview** at the bottom.
+- Settings: Screen edges (all screens or the main one, thickness, skip full-screen apps), quiet
+  hours, app, Advanced.
+- Puck page: connected = Test, firmware check/update, Advanced (port, board, serial, restart,
+  clear); not connected = "Plug in your Puck" and "Don't have one? See the Puck".
+
+Settings files (in the data folder):
+- `alerts.json`: the app's alert settings per state (`crates/engine/src/alerts.rs`). The app owns
+  them: this computer's screen edges and sound follow them, and the puck gets its part pushed
+  on every connect and change (only changed keys; master levels 100, the levels live on each
+  state). The first time a puck connects, its own settings are imported instead (existing
+  users), and where it chimes the computer stays quiet.
+- `glow.json`: pause, screens, thickness, skip full-screen apps.
+- `quiet.json`: between From and To (local time) sounds are muted, the screen edges dim to a
+  quarter and the puck's master level too (put back after, unless you changed it).
+- `agent-switches.json`: a switched-off agent is still shown but its events don't alert.
+- The hub's `/v1/set` and `hn set` (puck-style keys, app-events unchanged) set that field for
+  both the screen and the puck.
 - Fonts (D-058): Geist for text and headings, IBM Plex Mono for numbers, values and the
-  HUMAN_NEEDED wordmark; bundled (`app/ui/fonts`, SIL OFL 1.1).
+  HUMAN_NEEDED wordmark; bundled (`app/ui/fonts`, SIL OFL 1.1). Agent logos in `app/ui/logos`
+  (from `@lobehub/icons-static-svg`, MIT; the marks belong to their owners).
 
 ### Auto-update
 
