@@ -12,11 +12,14 @@
 //! - [`engine`]: the loop tying them together (session table → SNAP every 10 s / on change).
 //! - [`firmware`]: `latest.json` → SHA-256 → `BOOTSEL` → copy .uf2 to RPI-RP2.
 //! - [`agents`]: read-only per-agent status (D-054: the user installs the plugins).
+//! - [`here`]: "this computer" (D-059): the output while no puck is connected.
+//! - [`tones`]: the puck's sounds rendered for the computer's speakers.
 
 pub mod agents;
 pub mod cloud;
 pub mod engine;
 pub mod firmware;
+pub mod here;
 pub mod http;
 pub mod ipc;
 pub mod link;
@@ -26,6 +29,7 @@ pub mod paths;
 pub mod procs;
 pub mod proxy;
 pub mod quiet;
+pub mod tones;
 
 pub use engine::{Config, Engine};
 pub use link::PuckTarget;

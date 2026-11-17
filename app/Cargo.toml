@@ -20,7 +20,8 @@ hn-engine.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+cpal = "0.18"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"

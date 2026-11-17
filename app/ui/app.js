@@ -1,5 +1,7 @@
-// HumanNeeded tray panel (D-055): a remote control for the puck. Talks only to the app (Tauri
-// commands); the app owns the puck. Lists (lights, sounds, durations) come from the puck's SCHEMA.
+// HumanNeeded tray panel (D-055): the remote control for the state lights and sounds. Talks only
+// to the app (Tauri commands). With a puck, its settings are the puck's; without one (D-059) the
+// app answers the same commands for "this computer" (screen glow and sound). Lists (lights,
+// sounds, durations) come from SCHEMA.
 'use strict';
 const $ = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
@@ -78,7 +80,9 @@ function go(id, back) {
   view = id;
   fit();
 }
-function homeView() { return st && st.puck && st.puck.connected ? 'v-home' : 'v-empty'; }
+function homeView() { return 'v-home'; }
+const out = () => (st && st.output) || {};
+const onPuck = () => out().device === 'puck';
 
 // ---- puck data ----
 const val = (k) => (cfg[k] === undefined ? undefined : String(cfg[k]));
@@ -91,7 +95,7 @@ function label(name, v) {
   return o ? o[1].replace(/\s*\(.*\)$/, '') : v;
 }
 async function loadPuck() {
-  if (!st || !st.puck || !st.puck.compatible) return;
+  if (!st || (st.puck.connected && !st.puck.compatible)) return;
   try {
     if (!schema) schema = await invoke('puck_schema');
     cfg = await invoke('puck_settings');
@@ -139,12 +143,14 @@ function tileText(id) {
 }
 function renderHome() {
   if (!st) return;
-  const p = st.puck;
+  const o = out();
   const pr = problem();
-  const shown = String((p && p.shown) || 'idle').replace(/^test:/, '');
+  const shown = String(o.shown || 'idle').replace(/^test:/, '');
   $('dev-ring').style.color = val(`${shown}.color`) || 'var(--hn-faint)';
   $('dev-st').style.setProperty('--c', pr ? 'var(--hn-problem)' : 'var(--hn-ok)');
-  $('dev-text').textContent = pr ? pr.text : 'Connected';
+  const glow = !!(st.glow && st.glow.enabled);
+  $('dev-name').textContent = onPuck() || st.puck.connected ? 'Puck' : 'This computer';
+  $('dev-text').textContent = pr ? pr.text : (onPuck() ? 'Connected' : (glow ? 'Screen glow and sound' : 'Sound'));
   $('fix').hidden = !pr;
   if (pr) {
     $('fix-text').textContent = pr.fix;
@@ -159,10 +165,10 @@ function renderHome() {
   }
   paintRange($('bright'));
   paintRange($('vol'));
-  const m = (p.status && p.status.muted) || 'off';
+  const m = (o.status && o.status.muted) || 'off';
   const muted = m !== 'off';
   $('mute').setAttribute('aria-pressed', muted);
-  $('mute').setAttribute('aria-label', muted ? 'Unmute the puck' : 'Mute the puck');
+  $('mute').setAttribute('aria-label', muted ? 'Unmute sounds' : 'Mute sounds');
   $('mute-ic').setAttribute('href', muted ? '#i-volx' : '#i-vol');
   $('volrow').classList.toggle('off', muted);
   const q = st.quiet || {};
@@ -227,6 +233,7 @@ function renderState() {
     $('st-sound').innerHTML = list('sound').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
     $('st-sound').value = val(`${s.id}.sound`);
   }
+  $('st-prev-t').textContent = onPuck() ? 'Preview on puck' : 'Preview';
   $('st-dur-f').hidden = s.id !== 'done';
   if (s.id === 'done') {
     $('st-dur').innerHTML = list('duration').filter(([k]) => k !== '0').map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('');
@@ -273,7 +280,7 @@ $('st-sound').onchange = (e) => set(`${cur.id}.sound`, e.target.value);
 $('st-dur').onchange = (e) => set('done.duration', e.target.value);
 $('st-prev').onclick = async () => {
   await act('test', cur.id);
-  toast(`Playing "${cur.name}" on your puck`);
+  toast(`Playing "${cur.name}" ${onPuck() ? 'on your puck' : 'on this computer'}`);
 };
 $('st-reset').onclick = async () => {
   const d = DEFAULTS[cur.id];
@@ -294,7 +301,7 @@ function renderSettings() {
     const right = a.state === 'connected'
       ? sw(a.id, a.enabled)
       : '<button type="button" class="btn small" data-guide>Set up<svg class="i" style="width:13px;height:13px"><use href="#i-ext"/></svg></button>';
-    const small = a.state === 'connected' ? (a.enabled ? '' : "Doesn't light the puck") : 'Not set up yet';
+    const small = a.state === 'connected' ? (a.enabled ? '' : 'Switched off') : 'Not set up yet';
     return `<div class="row"><span class="agentmark">${esc(AGENT_MARK[a.id] || a.id.slice(0, 2))}</span><span class="gr">${esc(AGENT_NAME[a.id] || a.name)}${small ? `<small>${esc(small)}</small>` : ''}</span>${right}</div>`;
   });
   const c = st.cloud;
@@ -304,6 +311,7 @@ function renderSettings() {
   }
   $('agents').innerHTML = rows.join('');
 
+  $('glow-on').setAttribute('aria-checked', !!(st.glow && st.glow.enabled));
   const q = st.quiet || {};
   $('q-on').setAttribute('aria-checked', !!q.enabled);
   if (document.activeElement !== $('q-from') && q.from) $('q-from').value = q.from;
@@ -311,8 +319,8 @@ function renderSettings() {
 
   if (!fwBusy) {
     const p = st.puck;
-    $('fw-s').textContent = p.connected ? (fwNote ? `${p.fw} · ${fwNote}` : p.fw) : 'Plug in your puck to check its firmware';
-    $('fw-check').disabled = !p.connected;
+    $('fw-s').textContent = p.connected ? `Firmware ${fwNote ? `${p.fw} · ${fwNote}` : p.fw}` : 'Not connected. The puck is an optional desk light; plug it in any time.';
+    $('fw-check').hidden = !p.connected;
   }
 
   const u = st.update || {};
@@ -356,6 +364,11 @@ $('q-on').onclick = () => {
   saveQuiet();
 };
 $('q-from').onchange = saveQuiet;
+$('glow-on').onclick = async () => {
+  const on = $('glow-on').getAttribute('aria-checked') !== 'true';
+  try { await invoke('glow_set', { on }); } catch (e) { fail(e); }
+  refresh();
+};
 $('q-to').onchange = saveQuiet;
 
 let fwNote = '';
@@ -415,7 +428,7 @@ function resetButton() {
 }
 $('danger').addEventListener('click', async (e) => {
   if (e.target.closest('[data-reset]')) {
-    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Reset the puck\'s lights and sounds to their defaults? Agents, quiet hours and app settings stay.</p><div class="btns"><button type="button" class="btn red" data-yes>Reset</button><button type="button" class="btn" data-no>Cancel</button></div>';
+    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Reset the lights and sounds to their defaults? Agents, quiet hours and app settings stay.</p><div class="btns"><button type="button" class="btn red" data-yes>Reset</button><button type="button" class="btn" data-no>Cancel</button></div>';
     fit();
   } else if (e.target.closest('[data-yes]')) {
     await act('reset');
@@ -441,20 +454,22 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (view === 'v-home' || view === 'v-empty') invoke('panel_hide');
+  if (view === 'v-home') invoke('panel_hide');
   else { renderHome(); go(homeView(), true); }
 });
 
 // ---- status ----
-let wasConnected = null;
+let wasDevice = null;
 async function refresh() {
   try { st = await invoke('status'); } catch (e) { return; }
-  const connected = !!(st.puck && st.puck.connected);
-  if (connected !== wasConnected) {
-    wasConnected = connected;
-    if (connected) await loadPuck();
-    if (view === 'v-home' || view === 'v-empty') go(homeView());
-    if (view === 'v-state' && !connected) go(homeView(), true);
+  // Puck plugged in or out: its settings and lists replace this computer's (or back).
+  const device = out().device || '';
+  if (device !== wasDevice) {
+    const first = wasDevice === null;
+    wasDevice = device;
+    schema = null;
+    await loadPuck();
+    if (!first && view === 'v-state') go(homeView(), true);
   }
   renderHome();
   if (view === 'v-settings') renderSettings();

@@ -2,7 +2,7 @@
 
 use crate::ipc::{self, Incoming};
 use crate::link::{Link, LinkEvent, PuckTarget};
-use crate::{agents, firmware, liveness, log, paths, quiet};
+use crate::{agents, firmware, here, liveness, log, paths, quiet};
 use hn_core::event::Message;
 use hn_core::proto::{snap_line, Hello, SnapState, LEASE_S, RESEND_MS};
 use hn_core::sessions::Table;
@@ -75,6 +75,10 @@ struct Shared {
     updating: Option<String>,
     seen: agents::Seen,
     quiet: quiet::Quiet,
+    /// "This computer" (D-059): the output while no puck is connected.
+    here: here::Here,
+    /// `here` holds the snapshot (no puck): cleared once a puck takes over.
+    here_live: bool,
 }
 
 #[derive(Clone)]
@@ -86,7 +90,11 @@ pub struct Engine {
     link_events: Arc<tokio::sync::broadcast::Sender<LinkEvent>>,
     http: Arc<Mutex<crate::http::HttpStatus>>,
     cloud: Option<crate::cloud::Cloud>,
+    sounds: Arc<tokio::sync::broadcast::Sender<here::Sound>>,
 }
+
+/// Commands that only mean something to a real puck: never answered by "this computer".
+const PUCK_ONLY: [&str; 4] = ["BOOTSEL", "REBOOT", "SELFTEST", "HELLO"];
 
 fn now_ms() -> u64 {
     hn_sim::now_ms()
@@ -115,6 +123,12 @@ impl Engine {
                 .as_ref()
                 .map(|f| f.with_file_name("quiet.json")),
         );
+        let here = here::Here::load(
+            config
+                .agents_file
+                .as_ref()
+                .map(|f| f.with_file_name("here.json")),
+        );
         let engine = Self {
             config,
             link,
@@ -126,11 +140,14 @@ impl Engine {
                 updating: None,
                 seen,
                 quiet,
+                here,
+                here_live: false,
             })),
             changes,
             link_events: Arc::new(bcast),
             http: Arc::new(Mutex::new(Default::default())),
             cloud,
+            sounds: Arc::new(tokio::sync::broadcast::channel(16).0),
         };
         if let Some(port) = engine.config.http_port {
             let changes = engine.changes.clone();
@@ -150,6 +167,24 @@ impl Engine {
     /// Bumped on every visible change (for the UI / tray).
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
+    }
+
+    /// Sounds for the computer to play (D-059: only while no puck is connected).
+    pub fn sounds(&self) -> tokio::sync::broadcast::Receiver<here::Sound> {
+        self.sounds.subscribe()
+    }
+
+    /// Runs a command on "this computer"; its sounds go to [`Engine::sounds`].
+    fn here(&self, line: &str) -> Result<String, String> {
+        let (reply, sounds) = self.shared.lock().unwrap().here.handle(line, now_ms());
+        for s in sounds {
+            log!("sound {} {} on this computer", s.state, s.sound);
+            let _ = self.sounds.send(s);
+        }
+        match reply.strip_prefix("ERR ") {
+            Some(e) => Err(e.to_string()),
+            None => Ok(reply),
+        }
     }
 
     pub fn link_events(&self) -> tokio::sync::broadcast::Receiver<LinkEvent> {
@@ -210,6 +245,13 @@ impl Engine {
                         // Let the link settle (it answers our HELLO first).
                         tokio::time::sleep(Duration::from_millis(300)).await;
                         me.full_levels().await;
+                        // "This computer" takes the puck's look (D-059).
+                        if let Ok(all) = me.link.request("GET all").await {
+                            if let Ok(v) = serde_json::from_str::<Value>(&all) {
+                                me.shared.lock().unwrap().here.mirror(&v);
+                                me.changed();
+                            }
+                        }
                     });
                 }
             }
@@ -235,8 +277,12 @@ impl Engine {
                     s.table.apply(&ev, now_ms())
                 };
                 log!("event {} {} {:?}", ev.agent, ev.session, ev.state);
-                if fx.flash_done && self.puck_ready() {
-                    self.link.send("FLASH done");
+                if fx.flash_done {
+                    if self.puck_ready() {
+                        self.link.send("FLASH done");
+                    } else {
+                        let _ = self.here("FLASH done");
+                    }
                 }
                 self.send_snapshot(false);
                 self.changed();
@@ -274,13 +320,31 @@ impl Engine {
         }
     }
 
-    /// Sends a command line to the puck (settings UI, `hn`), waits for the reply.
+    /// Sends a command line to the puck (settings UI, `hn`), waits for the reply. With no puck
+    /// connected, "this computer" answers (D-059). Settings changed on a puck are copied there.
     pub async fn puck(&self, line: impl Into<String>) -> Result<String, String> {
         let line = line.into();
         if line.contains('\n') || line.contains('\r') {
             return Err("bad command".into());
         }
-        self.link.request(line).await
+        let cmd = line.split_whitespace().next().unwrap_or("");
+        if !self.puck_ready() && !PUCK_ONLY.contains(&cmd) {
+            return self.here(&line);
+        }
+        let r = self.link.request(line.clone()).await;
+        if r.is_ok() && cmd == "SET" {
+            self.shared.lock().unwrap().here.mirror_set(&line);
+        }
+        r
+    }
+
+    /// Which output shows the state: `puck` or `computer`.
+    pub fn output(&self) -> &'static str {
+        if self.puck_ready() {
+            "puck"
+        } else {
+            "computer"
+        }
     }
 
     fn puck_ready(&self) -> bool {
@@ -291,9 +355,20 @@ impl Engine {
     /// Sends the snapshot if it changed, if 10 s passed, or when forced.
     fn send_snapshot(&self, force: bool) {
         if !self.puck_ready() {
+            // No puck: "this computer" shows it. Its lease is renewed every second.
+            let line = {
+                let mut s = self.shared.lock().unwrap();
+                s.here_live = true;
+                snap_line(LEASE_S, &s.table.snapshot())
+            };
+            let _ = self.here(&line);
             return;
         }
         let mut s = self.shared.lock().unwrap();
+        if s.here_live {
+            s.here_live = false;
+            s.here.handle(&snap_line(LEASE_S, &[]), now_ms());
+        }
         let snap = s.table.snapshot();
         let due = s.last_sent.elapsed() >= Duration::from_millis(RESEND_MS - 300);
         if force || due || s.last_snap.as_ref() != Some(&snap) {
@@ -328,6 +403,18 @@ impl Engine {
             None
         };
         let shown = puck_status.as_ref().and_then(|p| p.get("shown").cloned());
+        // What shows the state now (D-059): the puck, or this computer (glow and sound).
+        let output = match &puck_status {
+            Some(st) => json!({"device": "puck", "shown": shown, "status": st}),
+            None => {
+                let st = self
+                    .here("STATUS")
+                    .ok()
+                    .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+                    .unwrap_or(Value::Null);
+                json!({"device": "computer", "shown": st["shown"], "status": st})
+            }
+        };
         json!({
             "ok": true,
             "app": {"version": APP_VERSION, "ipc": self.config.endpoint.display().to_string(), "log": log::path()},
@@ -347,6 +434,7 @@ impl Engine {
             // D-054: read-only; the user installs the plugins (guides at agents::SETUP_URL).
             "agents": agents,
             "quiet": quiet,
+            "output": output,
             "setup_url": agents::SETUP_URL,
             "snapshot": snapshot.iter().map(|(id, st)| json!({"id": id, "state": st.as_str()})).collect::<Vec<_>>(),
         })
@@ -413,7 +501,7 @@ impl Engine {
 
     /// Enters or leaves quiet hours (checked every 15 s and on change).
     async fn quiet_tick(&self) {
-        if !self.puck_ready() {
+        if self.shared.lock().unwrap().updating.is_some() {
             return;
         }
         let action = {

@@ -15,8 +15,10 @@ const LIGHTS: [&str; 8] = [
     "flicker",
     "spin",
 ];
-const SOUNDS: [&str; 8] = [
-    "none", "ding", "chime", "rising", "arpeggio", "bell", "beeps", "bloop",
+/// Firmware 2.0.x's sounds, in its order (the melodies were added after "bloop").
+pub const SOUNDS: [&str; 16] = [
+    "none", "ding", "chime", "rising", "arpeggio", "bell", "beeps", "bloop", "bright", "clock",
+    "doorbell", "fanfare", "ripple", "call", "lullaby", "harp",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +44,8 @@ pub struct SimPuck {
     pub sounds: Vec<String>,
     /// Set by BOOTSEL / REBOOT; the transport acts on it after the reply is sent.
     pub pending: Option<Pending>,
+    /// Firmware 2.0.x defaults (`RESET` goes back to them).
+    fw2: bool,
     /// Light shown at power-up / reconnect only ("hello" light, silent).
     pub suspended: bool,
 }
@@ -52,21 +56,37 @@ pub enum Pending {
     Bootsel,
 }
 
-fn defaults() -> BTreeMap<String, String> {
+fn defaults(fw2: bool) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
     m.insert("brightness".into(), "60".into());
     m.insert("volume".into(), "70".into());
-    for (st, color, light, sound, duration) in [
-        ("needs", "#ff8800", "pulse", "chime", "0"),
-        ("done", "#22cc55", "solid", "ding", "5"),
-        ("working", "#3366ff", "breathe", "none", "0"),
-        ("idle", "#ffaa66", "solid", "none", "0"),
-    ] {
+    // The simulator's own defaults (tests rely on them), or firmware 2.0.x's (`settings.cpp`).
+    let styles = if fw2 {
+        [
+            ("needs", "#ffa62b", "pulse", "call", "0"),
+            ("done", "#22e04a", "pulse", "bright", "3"),
+            ("working", "#3366ff", "spin", "none", "0"),
+            ("idle", "#ffd2a0", "solid", "none", "0"),
+        ]
+    } else {
+        [
+            ("needs", "#ff8800", "pulse", "chime", "0"),
+            ("done", "#22cc55", "solid", "ding", "5"),
+            ("working", "#3366ff", "breathe", "none", "0"),
+            ("idle", "#ffaa66", "solid", "none", "0"),
+        ]
+    };
+    for (st, color, light, sound, duration) in styles {
         m.insert(format!("{st}.color"), color.into());
         m.insert(format!("{st}.light"), light.into());
         m.insert(
             format!("{st}.brightness"),
-            if st == "idle" { "10" } else { "100" }.into(),
+            match (st, fw2) {
+                ("idle", true) => "20",
+                ("idle", false) => "10",
+                _ => "100",
+            }
+            .into(),
         );
         if st != "idle" {
             m.insert(format!("{st}.duration"), duration.into());
@@ -80,11 +100,21 @@ fn defaults() -> BTreeMap<String, String> {
 
 impl SimPuck {
     pub fn new(fw: &str) -> Self {
+        Self::with_defaults(fw, false)
+    }
+
+    /// The same machine with firmware 2.0.x's defaults (the app's "this computer" output).
+    pub fn with_fw2_defaults(fw: &str) -> Self {
+        Self::with_defaults(fw, true)
+    }
+
+    fn with_defaults(fw: &str, fw2: bool) -> Self {
         Self {
             fw: fw.into(),
             board: "hn-v2".into(),
             serial: "HN00SIMULATOR000".into(),
-            settings: defaults(),
+            settings: defaults(fw2),
+            fw2,
             entries: Vec::new(),
             lease_until: None,
             prev_needs: HashSet::new(),
@@ -219,7 +249,7 @@ impl SimPuck {
             },
             "SCHEMA" => schema().to_string(),
             "RESET" => {
-                self.settings = defaults();
+                self.settings = defaults(self.fw2);
                 "OK".into()
             }
             "MUTE" if args.len() == 1 => match args[0] {
@@ -382,6 +412,14 @@ pub fn schema() -> Value {
             "Bell",
             "Beeps",
             "Bloop",
+            "Bright (melody)",
+            "Clock (melody)",
+            "Doorbell (melody)",
+            "Fanfare (melody)",
+            "Ripple (melody)",
+            "Call (melody)",
+            "Lullaby (melody)",
+            "Harp (melody)",
         ],
     );
     let duration = opts(
