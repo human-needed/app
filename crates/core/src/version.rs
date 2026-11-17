@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! "2.0.0", "v0.2.0-test.4" -> [2,0,0]. Pre-release suffixes are ignored.
 
 pub fn parse(v: &str) -> [u32; 3] {

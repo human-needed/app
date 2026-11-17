@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `hn`: the one command agent integrations call (pm/contracts/app-events.md §1–4).
 //!
 //! `hn event …` must never hurt an agent: it always exits 0 within 1 s, prints nothing, and does

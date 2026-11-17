@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Where `hn` finds the app (app-events §1). `HN_IPC` overrides it (tests, several instances).
 //!
 //! - Windows: named pipe `\\.\pipe\humanneeded-<user SID>`.

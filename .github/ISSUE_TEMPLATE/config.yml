@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/human-needed/app/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.
+  - name: Setup guides
+    url: https://human-needed.com/start/
+    about: How to connect Claude Code, Codex, Cursor and Cowork.

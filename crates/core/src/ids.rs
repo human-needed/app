@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The puck only sees 8 lowercase hex ids (`hn-usb/2` §3). The app hashes `agent` + `session`.
 
 /// FNV-1a 32-bit of `agent \x1f session`, as 8 lowercase hex characters. Stable across runs.

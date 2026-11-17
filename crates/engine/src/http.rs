@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Local HTTP hub (app-events 2.0, D-047, D-048): agents post hook events straight to the app.
 //!
 //! `POST http://127.0.0.1:24816/v1/event/<agent>/<state>[?ttl=<s>]` with the hook's raw JSON as

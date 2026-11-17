@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Host side of `hn-usb/2` (pm/contracts/usb-protocol.md): command lines and reply parsing.
 
 use serde::{Deserialize, Serialize};
