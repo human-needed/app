@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! HumanNeeded tray app (D-027, D-031, D-055): one per user, starts at login, the only writer to
 //! the puck. Tray only: no main window, one panel that opens from the tray / menu-bar icon. The
 //! engine (hn-engine) does the work; this file wires the tray, the panel and the commands the
@@ -5,8 +6,10 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod glow;
 mod hn_install;
 mod panel;
+mod sound;
 mod tray;
 mod updater;
 
@@ -27,12 +30,26 @@ fn json_reply(r: R<String>) -> R<Value> {
 
 #[tauri::command]
 async fn status(
+    app: AppHandle,
     engine: State<'_, Engine>,
     updates: State<'_, std::sync::Arc<updater::Updates>>,
 ) -> R<Value> {
     let mut st = engine.status().await;
     st["update"] = serde_json::to_value(updates.status()).unwrap_or_default();
+    st["glow"] = serde_json::json!({ "enabled": glow::enabled(&app) });
     Ok(st)
+}
+
+/// What the screen-edge glow shows now (the glow page asks when it loads).
+#[tauri::command]
+fn glow_spec(app: AppHandle) -> glow::Spec {
+    glow::current(&app)
+}
+
+/// Screen-edge glow on or off (D-059).
+#[tauri::command]
+fn glow_set(app: AppHandle, on: bool) -> R<()> {
+    glow::set_enabled(&app, on)
 }
 
 #[tauri::command]
@@ -196,6 +213,8 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status,
+            glow_spec,
+            glow_set,
             puck_schema,
             puck_settings,
             puck_set,
@@ -247,6 +266,8 @@ fn main() {
             }
             updater::start(app.handle());
             panel::init(app.handle())?;
+            glow::init(app.handle());
+            sound::start(&engine);
             tray::build(app.handle(), engine.clone())?;
             // Started by hand (not at sign-in): show the panel once, so people see where it is.
             let background = std::env::args().any(|a| a == "--background");

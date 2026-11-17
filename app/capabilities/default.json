@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The tray panel may call the app's own commands and listen to its events.",
-  "windows": ["panel"],
+  "description": "The tray panel and the screen-edge glow windows may call the app's own commands and listen to its events.",
+  "windows": ["panel", "glow-*"],
   "permissions": ["core:default"]
 }

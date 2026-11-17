@@ -1,0 +1,47 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Screen-edge glow (D-059). One layer, masked to a soft frame along the screen edges. Only
+   opacity and transform animate, so the compositor does the work; with nothing to show the
+   layer is fully transparent and nothing animates. Timings are the puck's (firmware leds.cpp). */
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+#g {
+  position: fixed; inset: 0; opacity: 0; transition: opacity .6s ease; pointer-events: none;
+  --t: clamp(22px, 3.2vmin, 64px);
+  --edge: linear-gradient(to bottom, #000, transparent var(--t)),
+          linear-gradient(to top, #000, transparent var(--t)),
+          linear-gradient(to right, #000, transparent var(--t)),
+          linear-gradient(to left, #000, transparent var(--t));
+  -webkit-mask-image: var(--edge);
+  mask-image: var(--edge);
+}
+#c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
+
+.breathe #c { animation: breathe 4s ease-in-out infinite; }
+.pulse #c { animation: pulse 1.4s ease-in-out infinite; }
+.blink #c { animation: blink 1s linear infinite; }
+.heartbeat #c { animation: heartbeat 1.2s linear infinite; }
+.flicker #c { animation: flicker 2.7s linear infinite; }
+/* Spin: a comet runs round the edges. Slower than the puck's 1.5 s: a whole screen is much
+   bigger than the ring. */
+.spin #c {
+  inset: -60vmax; will-change: transform;
+  background: conic-gradient(from 0deg, var(--c), color-mix(in srgb, var(--c) 12%, transparent) 4% 50%, var(--c) 100%);
+  animation: spin 4s linear infinite;
+}
+
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes blink { 0% { opacity: 0; } 6% { opacity: 1; } 50% { opacity: 1; } 56% { opacity: 0; } 100% { opacity: 0; } }
+@keyframes heartbeat {
+  0% { opacity: .15; } 3.3% { opacity: 1; } 10% { opacity: 1; } 13.3% { opacity: .15; }
+  20.8% { opacity: .15; } 24.2% { opacity: 1; } 30.8% { opacity: 1; } 34.2% { opacity: .15; } 100% { opacity: .15; }
+}
+@keyframes flicker {
+  0% { opacity: .8; } 9% { opacity: .62; } 17% { opacity: .95; } 26% { opacity: .7; } 35% { opacity: .88; }
+  44% { opacity: .55; } 53% { opacity: .9; } 62% { opacity: .75; } 71% { opacity: 1; } 80% { opacity: .66; }
+  90% { opacity: .85; } 100% { opacity: .8; }
+}
+@keyframes spin { to { transform: rotate(1turn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  #c { animation: none !important; }
+}

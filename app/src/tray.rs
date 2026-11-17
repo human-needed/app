@@ -1,11 +1,13 @@
-//! Tray / menu-bar icon (D-055): a ring in the colour the puck shows, with a small dot when the
-//! puck is muted (grey) or something needs fixing (red). Left click opens the panel; right click:
-//! Mute for 1 hour, Quit.
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Tray / menu-bar icon (D-055): a ring in the colour of the state shown (on the puck, or on this
+//! computer when there's no puck, D-059), with a small dot when sounds are muted (grey) or
+//! something needs fixing (red). Left click opens the panel; right click: Screen edge glow,
+//! Mute for 1 hour, Quit. The same loop drives the screen-edge glow.
 
 use hn_engine::Engine;
 use serde_json::Value;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter};
 
@@ -78,18 +80,18 @@ fn hex_rgb(s: &str) -> Option<[u8; 3]> {
     Some([p(0)?, p(2)?, p(4)?])
 }
 
-/// A problem the panel shows on its top line (and the tray as a red dot).
+/// A problem the panel shows on its top line (and the tray as a red dot). No puck is not a
+/// problem (D-059): the app works on its own.
 pub fn problem(status: &Value) -> bool {
     status["http"]["error"].is_string()
         || status["proxy"].is_object()
-        || status["puck"]["connected"] != true
-        || status["puck"]["compatible"] != true
+        || (status["puck"]["connected"] == true && status["puck"]["compatible"] != true)
 }
 
-/// What the tray shows, from the engine status and the puck's colours (`GET all`).
+/// What the tray shows, from the engine status and the output's colours (`GET all`).
 pub fn look_of(status: &Value, colours: &Value) -> (Look, String) {
     let connected = status["puck"]["connected"] == true;
-    let shown = status["puck"]["shown"]
+    let shown = status["output"]["shown"]
         .as_str()
         .unwrap_or("idle")
         .trim_start_matches("test:")
@@ -98,15 +100,11 @@ pub fn look_of(status: &Value, colours: &Value) -> (Look, String) {
         "needs" | "working" | "done" | "idle" => shown.as_str(),
         _ => "idle",
     };
-    let ring = if connected {
-        colours[format!("{base}.color")]
-            .as_str()
-            .and_then(hex_rgb)
-            .unwrap_or([0xe7, 0xe9, 0xea])
-    } else {
-        GREY_RING
-    };
-    let muted = status["puck"]["status"]["muted"]
+    let ring = colours[format!("{base}.color")]
+        .as_str()
+        .and_then(hex_rgb)
+        .unwrap_or(GREY_RING);
+    let muted = status["output"]["status"]["muted"]
         .as_str()
         .is_some_and(|m| m != "off");
     let dot = if problem(status) {
@@ -120,9 +118,7 @@ pub fn look_of(status: &Value, colours: &Value) -> (Look, String) {
         "agents can't reach the app".to_string()
     } else if status["proxy"].is_object() {
         "a proxy setting blocks agents".to_string()
-    } else if !connected {
-        "plug in your puck".to_string()
-    } else if status["puck"]["compatible"] != true {
+    } else if connected && status["puck"]["compatible"] != true {
         "the puck needs a firmware update".to_string()
     } else {
         let snap = status["snapshot"].as_array().cloned().unwrap_or_default();
@@ -148,9 +144,20 @@ pub fn look_of(status: &Value, colours: &Value) -> (Look, String) {
 }
 
 pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
+    let glow = CheckMenuItem::with_id(
+        app,
+        "glow",
+        "Screen edge glow",
+        true,
+        crate::glow::enabled(app),
+        None::<&str>,
+    )?;
     let mute = MenuItem::with_id(app, "mute", "Mute for 1 hour", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit HumanNeeded", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&mute, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&glow, &mute, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
 
     let e = engine.clone();
     let start = Look {
@@ -163,6 +170,10 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, ev| match ev.id.as_ref() {
+            "glow" => {
+                let _ = crate::glow::set_enabled(app, !crate::glow::enabled(app));
+                let _ = app.emit("changed", ());
+            }
             "mute" => {
                 let e = e.clone();
                 let app = app.clone();
@@ -196,25 +207,37 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
         let mut last: Option<(Look, String)> = None;
         let mut colours = Value::Null;
         let mut colours_at: Option<std::time::Instant> = None;
-        let mut was_connected = false;
+        let mut was_output = String::new();
+        let mut screens_at: Option<std::time::Instant> = None;
         loop {
             let status = engine.status().await;
-            let connected = status["puck"]["compatible"] == true;
-            // The puck's colours: on connect, then every 30 s (the panel may change them).
+            let output = status["output"]["device"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            // The output's settings: when it changes (puck plugged in or out), then every 30 s
+            // (the panel may change them).
             let stale = colours_at.is_none_or(|t| t.elapsed().as_secs() >= 30);
-            if connected && (!was_connected || stale) {
+            if output != was_output || stale {
                 if let Ok(r) = engine.puck("GET all").await {
                     colours = serde_json::from_str(&r).unwrap_or(Value::Null);
                     colours_at = Some(std::time::Instant::now());
                 }
             }
-            was_connected = connected;
+            was_output = output;
             let now = look_of(&status, &colours);
             if last.as_ref() != Some(&now) {
                 let _ = tray.set_icon(Some(icon(&now.0)));
                 let _ = tray.set_tooltip(Some(&now.1));
                 last = Some(now);
             }
+            // Screen-edge glow (D-059): windows for the current monitors, then what to show.
+            if screens_at.is_none_or(|t| t.elapsed().as_secs() >= 5) {
+                crate::glow::sync(&app);
+                screens_at = Some(std::time::Instant::now());
+            }
+            crate::glow::show(&app, crate::glow::spec_of(&status, &colours));
+            let _ = glow.set_checked(crate::glow::enabled(&app));
             let _ = app.emit("changed", ());
             // Wake on any change, and at least every 5 s (puck STATUS, mute timers).
             tokio::select! {
@@ -235,18 +258,22 @@ mod tests {
     #[test]
     fn ring_follows_the_shown_state_and_dots() {
         let colours = json!({"needs.color":"#ff8800","idle.color":"#ffaa66"});
-        let ok = json!({"http":{},"puck":{"connected":true,"compatible":true,"shown":"needs","status":{"muted":"off"}},"snapshot":[{"state":"needs"}]});
+        let ok = json!({"http":{},"puck":{"connected":true,"compatible":true},"output":{"device":"puck","shown":"needs","status":{"muted":"off"}},"snapshot":[{"state":"needs"}]});
         let (l, t) = look_of(&ok, &colours);
         assert_eq!(l.ring, [0xff, 0x88, 0x00]);
         assert_eq!(l.dot, Dot::None);
         assert_eq!(t, "HumanNeeded: 1 needs you");
         let mut muted = ok.clone();
-        muted["puck"]["status"]["muted"] = json!("42");
+        muted["output"]["status"]["muted"] = json!("42");
         assert_eq!(look_of(&muted, &colours).0.dot, Dot::Muted);
-        let unplugged = json!({"http":{},"puck":{"connected":false}});
+        // No puck (D-059): no nag; the ring shows this computer's state.
+        let unplugged = json!({"http":{},"puck":{"connected":false},"output":{"device":"computer","shown":"idle","status":{"muted":"off"}},"snapshot":[]});
         let (l, t) = look_of(&unplugged, &colours);
-        assert_eq!((l.ring, l.dot), (GREY_RING, Dot::Problem));
-        assert!(t.contains("plug in"));
+        assert_eq!((l.ring, l.dot), ([0xff, 0xaa, 0x66], Dot::None));
+        assert_eq!(t, "HumanNeeded: nothing running");
+        let mut old = ok.clone();
+        old["puck"]["compatible"] = json!(false);
+        assert_eq!(look_of(&old, &colours).0.dot, Dot::Problem);
         let mut proxy = ok.clone();
         proxy["proxy"] = json!({"problem":"x"});
         assert_eq!(look_of(&proxy, &colours).0.dot, Dot::Problem);
