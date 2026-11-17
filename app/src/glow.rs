@@ -187,6 +187,8 @@ fn make(app: &AppHandle, i: usize, x: i32, y: i32, w: u32, h: u32) -> tauri::Res
     .visible_on_all_workspaces(true)
     .focused(false)
     .focusable(false)
+    // Not in screenshots, recordings or screen shares: the glow is for the person at the desk.
+    .content_protected(true)
     .visible(false)
     .build()?;
     win.set_position(PhysicalPosition::new(x, y))?;
