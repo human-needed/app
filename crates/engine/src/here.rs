@@ -33,9 +33,10 @@ impl Default for Here {
 
 impl Here {
     pub fn new() -> Self {
-        Self {
-            puck: SimPuck::with_fw2_defaults("app"),
-        }
+        let mut puck = SimPuck::with_fw2_defaults("app");
+        // A preview here lasts exactly as long as the real state would (no 10 s cap).
+        puck.machine.preview_cap = None;
+        Self { puck }
     }
 
     /// Takes these settings (`key → value`, as on a puck); bad ones are skipped.
