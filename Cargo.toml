@@ -18,7 +18,8 @@ hn-engine = { path = "crates/engine" }
 
 [profile.release]
 opt-level = "s"
-# Thin LTO and parallel codegen: release builds take a fraction of the time of full LTO with
-# one codegen unit, for a slightly larger binary.
-lto = "thin"
+# No LTO, parallel codegen: with the dependencies cached, a release build is mostly our own
+# crates plus the link, and LTO was most of that (locally 27 s -> 18 s). The app is 7% larger
+# (14.2 MB vs 13.3 MB); a tray app doesn't need the extra speed.
+lto = false
 strip = true

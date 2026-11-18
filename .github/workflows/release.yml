@@ -51,6 +51,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Windows: build on a Dev Drive (ReFS, trusted so Defender doesn't scan every file);
+      # the C: drive's NTFS + real-time scanning makes Rust builds much slower there.
+      - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        if: matrix.name == 'windows'
+        with:
+          drive-size: 12GB
+          drive-format: ReFS
+          native-dev-drive: true
+          trusted-dev-drive: true
+          workspace-copy: true
+      # Where the build runs: the Dev Drive copy on Windows, the checkout elsewhere.
+      - name: Build folder
+        shell: bash
+        run: echo "ROOT=${DEV_DRIVE_WORKSPACE:-$GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
       - name: Tag matches the app version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -67,6 +81,7 @@ jobs:
         with:
           # Same key on main and tags, so a tag build starts from main's cache.
           shared-key: release-${{ matrix.name }}
+          workspaces: ${{ env.ROOT }} -> target
           cache-on-failure: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -75,10 +90,11 @@ jobs:
       - name: Warm-up build only (main)
         if: github.ref == 'refs/heads/main'
         shell: bash
+        working-directory: ${{ env.ROOT }}
         run: cargo build --release -p humanneeded ${{ matrix.name == 'macos' && '--target aarch64-apple-darwin --target x86_64-apple-darwin' || '' }}
       - name: Build installer
         if: github.ref != 'refs/heads/main'
-        working-directory: app
+        working-directory: ${{ env.ROOT }}/app
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -91,19 +107,21 @@ jobs:
       - name: Collect
         if: github.ref != 'refs/heads/main'
         shell: bash
+        working-directory: ${{ env.ROOT }}
         run: |
-          mkdir dist
-          cp ${{ matrix.out }} dist/
+          # The artifact upload reads dist/ in the checkout.
+          out="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$out" upd
+          cp ${{ matrix.out }} "$out/"
           # Same file under a version-free name, so the website can link to
           # releases/latest/download/<stable name> and never needs editing.
-          cp ${{ matrix.out }} "dist/${{ matrix.stable }}"
+          cp ${{ matrix.out }} "$out/${{ matrix.stable }}"
           # Updater bundle + signature under stable names (latest.json points at them).
-          mkdir -p upd
           cp ${{ matrix.upd }} "upd/${{ matrix.upd_stable }}"
           cp ${{ matrix.upd }}.sig "upd/${{ matrix.upd_stable }}.sig"
-          [ -e "dist/${{ matrix.upd_stable }}" ] || cp "upd/${{ matrix.upd_stable }}" dist/
-          cp "upd/${{ matrix.upd_stable }}.sig" dist/
-          ls -l dist
+          [ -e "$out/${{ matrix.upd_stable }}" ] || cp "upd/${{ matrix.upd_stable }}" "$out/"
+          cp "upd/${{ matrix.upd_stable }}.sig" "$out/"
+          ls -l "$out"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.ref != 'refs/heads/main'
         with:
