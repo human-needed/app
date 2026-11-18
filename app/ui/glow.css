@@ -22,7 +22,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 #c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
 
 .breathe #c { animation: breathe 1s ease-in-out var(--d, 0ms) infinite both; }
-.pulse #c { animation: pulse 1s ease-in-out var(--d, 0ms) infinite both; }
 .blink #c { animation: blink 1s linear var(--d, 0ms) infinite both; }
 .heartbeat #c { animation: heartbeat 1s linear var(--d, 0ms) infinite both; }
 .flicker #c { animation: flicker 1s linear var(--d, 0ms) infinite both; }
@@ -36,7 +35,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 #g.hold #c { animation-play-state: paused; }
 
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
 @keyframes blink { 0%, 22% { opacity: 1; } 28%, 72% { opacity: 0; } 78%, 100% { opacity: 1; } }
 /* Two quick beats, then a rest: the first beat spans the join between cycles. */
 @keyframes heartbeat {

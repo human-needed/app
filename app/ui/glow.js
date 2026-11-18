@@ -2,7 +2,7 @@
 // Screen-edge glow page (D-059): shows what the app sends ({state, color, light, level}).
 (() => {
   const g = document.getElementById('g');
-  const LIGHTS = ['solid', 'breathe', 'pulse', 'blink', 'heartbeat', 'flicker', 'spin'];
+  const LIGHTS = ['solid', 'breathe', 'blink', 'heartbeat', 'flicker', 'spin'];
   // The light fades in, its effect runs for the state's duration, then it fades out. The fades
   // (glow.css, the engine's LIGHT_FADE_MS) don't count towards the duration.
   const FADE_MS = 250;

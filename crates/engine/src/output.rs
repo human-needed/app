@@ -14,7 +14,7 @@ pub struct Screen {
     pub state: String,
     /// `#rrggbb`.
     pub color: String,
-    /// The light's name (`pulse`, `spin`, …), as on the puck.
+    /// The light's name (`breathe`, `spin`, …), as on the puck.
     pub light: String,
     /// Opacity, 0.2..1 (the state's brightness, dimmed in quiet hours).
     pub level: f32,
@@ -63,7 +63,7 @@ mod tests {
     fn follows_the_state_settings() {
         let mut a = Alerts::default();
         let n = screen(&a, "needs", false, 0, false).unwrap();
-        assert_eq!((n.color.as_str(), n.light.as_str()), ("#ffa62b", "pulse"));
+        assert_eq!((n.color.as_str(), n.light.as_str()), ("#ffa62b", "breathe"));
         assert!((n.level - 1.0).abs() < 1e-5);
         // Working and idle don't glow by default.
         assert_eq!(screen(&a, "working", false, 0, false), None);
