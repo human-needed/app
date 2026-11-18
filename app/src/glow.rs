@@ -336,7 +336,10 @@ fn make(app: &AppHandle, i: usize, (x, y, w, h): Rect) -> tauri::Result<String> 
         .focused(false)
         .focusable(false)
         // Not in screenshots, recordings or screen shares: the glow is for the person at the desk.
-        .content_protected(true)
+        // (Debug builds: HN_GLOW_CAPTURE=1 lets tests sample it from the screen.)
+        .content_protected(
+            !(cfg!(debug_assertions) && std::env::var_os("HN_GLOW_CAPTURE").is_some()),
+        )
         .visible(false)
         .build()?;
     win.set_position(PhysicalPosition::new(x, y))?;

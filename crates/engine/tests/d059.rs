@@ -90,6 +90,35 @@ async fn no_puck_glows_and_sounds_on_the_computer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn previews_and_events_reach_the_computer_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (e, port) = start("now", PuckTarget::None, dir.path()).await;
+    let mut rx = e.subscribe();
+    rx.borrow_and_update();
+    // A preview: shown at once, and the change is signalled (the glow and tray follow).
+    e.puck("TEST needs").await.unwrap();
+    assert_eq!(e.computer_now().0, "test:needs");
+    assert!(rx.has_changed().unwrap(), "preview signalled");
+    // A real event takes over the preview; its end clears it at once.
+    assert_eq!(post(port, "/v1/event/claude/working").await, 204);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(e.computer_now().0, "working");
+    assert_eq!(post(port, "/v1/event/claude/end").await, 204);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(e.computer_now().0, "idle");
+    // Done flashes for the screen's duration, then clears on its own.
+    let mut a = e.alerts_get();
+    a.states.get_mut("done").unwrap().screen.duration = 3;
+    e.alerts_set(a).await.unwrap();
+    assert_eq!(post(port, "/v1/event/claude/working").await, 204);
+    assert_eq!(post(port, "/v1/event/claude/done").await, 204);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(e.computer_now().0, "done");
+    tokio::time::sleep(Duration::from_millis(3_100)).await;
+    assert_eq!(e.computer_now().0, "idle");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_computer_sound_follows_its_switch() {
     let dir = tempfile::tempdir().unwrap();
     let (e, port) = start("quiet-pc", PuckTarget::None, dir.path()).await;

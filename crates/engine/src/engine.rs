@@ -403,6 +403,8 @@ impl Engine {
                 .map(|_| "OK".into()),
             _ if BOTH.contains(&cmd) => {
                 let here = self.here(&line);
+                // The screen glow and the tray follow at once (a preview starts now).
+                self.changed();
                 if self.puck_ready() {
                     self.link.request(line.clone()).await
                 } else {
@@ -420,6 +422,14 @@ impl Engine {
             return Err("puck not connected".into());
         }
         self.link.request(line).await
+    }
+
+    /// What this computer shows right now and whether quiet hours are on. No I/O: the screen
+    /// glow reads it ten times a second, for previews and real events alike.
+    pub fn computer_now(&self) -> (String, bool) {
+        let mut s = self.shared.lock().unwrap();
+        let shown = s.here.shown_line(now_ms());
+        (shown, s.quiet.status().active)
     }
 
     fn alerts_path(&self) -> Option<PathBuf> {

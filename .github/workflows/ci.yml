@@ -1,9 +1,9 @@
 name: ci
 
+# Run by hand only (Actions → ci → Run workflow): test and beta PRs are merged without waiting
+# for CI; run the tests locally before opening a PR (cargo fmt, clippy, test, scripts/smoke.sh).
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
