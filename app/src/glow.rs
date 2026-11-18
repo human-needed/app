@@ -2,6 +2,10 @@
 //! Screen-edge glow (D-059): the screen edges light up in the state's colour and animation, as
 //! each state's "Screen edges" settings say. Works with or without a puck.
 //!
+//! What to show comes from the engine ([`hn_engine::Engine::screen`]), which changes it the
+//! moment the shown state does (events, previews, durations). This module only draws it: no
+//! timing here.
+//!
 //! One borderless, transparent, always-on-top window per monitor (or only the main one),
 //! covering it. It never takes focus (not focusable, shown without activating) and never takes
 //! clicks (cursor events pass through), and it's left out of screenshots and screen shares. The
@@ -10,17 +14,18 @@
 //! monitor while a full-screen app is in front there (Windows). The tray menu's
 //! "Screen edge glow" pauses it all.
 
+use hn_engine::output::Screen;
+use hn_engine::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl};
 
 const PREFIX: &str = "glow-";
 
-/// What the edges show.
+/// What a glow page draws.
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct Spec {
     /// `needs` | `done` | `working` | `idle`; `None` = nothing.
@@ -32,6 +37,21 @@ pub struct Spec {
     pub level: f32,
     /// `thin` | `mid` | `wide`.
     pub thickness: String,
+}
+
+impl Spec {
+    fn of(look: &Option<Screen>, thickness: &str) -> Self {
+        match look {
+            None => Spec::default(),
+            Some(l) => Spec {
+                state: Some(l.state.clone()),
+                color: l.color.clone(),
+                light: l.light.clone(),
+                level: l.level,
+                thickness: thickness.into(),
+            },
+        }
+    }
 }
 
 /// The glow's own settings (`glow.json`).
@@ -77,13 +97,12 @@ type Rect = (i32, i32, u32, u32);
 #[derive(Default)]
 pub struct Glow {
     options: Mutex<Options>,
-    spec: Mutex<Spec>,
+    /// What the engine says the edges show now.
+    look: Mutex<Option<Screen>>,
     /// Window label → the monitor it covers.
     windows: Mutex<Vec<(String, Rect)>>,
     /// What each window was last sent.
     sent: Mutex<Vec<(String, Spec)>>,
-    /// The state shown and since when (for each state's duration).
-    since: Mutex<Option<(String, Instant)>>,
     /// A [`sync`] is making or closing windows (only one at a time).
     syncing: AtomicBool,
 }
@@ -104,61 +123,44 @@ fn load() -> Options {
     }
 }
 
-fn num(v: &Value) -> Option<f32> {
-    match v {
-        Value::Number(n) => n.as_f64().map(|f| f as f32),
-        Value::String(s) => s.parse().ok(),
-        _ => None,
-    }
-}
-
-/// The glow for an engine status (`output.shown`, `quiet`) and this computer's settings
-/// (`Alerts::computer_settings`). `elapsed` = seconds the state has been shown.
-pub fn spec_of(status: &Value, settings: &Value, elapsed: f32, thickness: &str) -> Spec {
-    let Some(shown) = status["output"]["shown"].as_str() else {
-        return Spec::default();
-    };
-    let st = shown.trim_start_matches("test:");
-    let preview = shown.starts_with("test:");
-    if !matches!(st, "needs" | "done" | "working" | "idle") {
-        return Spec::default();
-    }
-    let light = settings[format!("{st}.light")]
-        .as_str()
-        .unwrap_or("off")
-        .to_string();
-    let own = num(&settings[format!("{st}.brightness")]).unwrap_or(100.0) / 100.0;
-    // Quiet hours: the edges dim to a quarter, like the puck.
-    let quiet = if status["quiet"]["active"] == true {
-        0.25
-    } else {
-        1.0
-    };
-    let level = (own * quiet).clamp(0.0, 1.0);
-    // Each state's duration ("done" ends by itself); a preview always shows.
-    let dur = num(&settings[format!("{st}.duration")]).unwrap_or(0.0);
-    let expired = !preview && st != "done" && dur > 0.0 && elapsed > dur;
-    if light == "off" || level <= 0.01 || expired {
-        return Spec::default();
-    }
-    Spec {
-        state: Some(st.to_string()),
-        color: settings[format!("{st}.color")]
-            .as_str()
-            .unwrap_or("#ffffff")
-            .to_string(),
-        light,
-        level: 0.2 + 0.8 * level,
-        thickness: thickness.to_string(),
-    }
-}
-
-/// Loads the options. The windows are made by the tray loop's first [`sync`], off the main
-/// thread, so setup never waits on window creation.
+/// Loads the options and follows the engine: each change of what the edges show goes to the
+/// glow windows at once. The windows are made off the main thread, by [`start`]'s loop, so
+/// setup never waits on window creation.
 pub fn init(app: &AppHandle) {
     let g = Glow::default();
     *g.options.lock().unwrap() = load();
     app.manage(g);
+}
+
+/// Starts the glow: follows the engine's look, and every few seconds matches the windows to
+/// the monitors (they come and go) and re-checks full-screen apps.
+pub fn start(app: &AppHandle, engine: &Engine) {
+    let mut rx = engine.screen();
+    let a = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let look = rx.borrow_and_update().clone();
+            *a.state::<Glow>().look.lock().unwrap() = look;
+            show(&a);
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+    let a = app.clone();
+    std::thread::spawn(move || {
+        let mut first = true;
+        loop {
+            sync(&a);
+            show(&a);
+            if first {
+                first = false;
+                // Proof the main thread runs after startup (the CI smoke run waits for it).
+                let _ = a.run_on_main_thread(|| hn_engine::log!("ui: ready"));
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    });
 }
 
 pub fn options(app: &AppHandle) -> Options {
@@ -179,9 +181,11 @@ pub fn set_options(app: &AppHandle, o: Options) -> Result<(), String> {
         o.skip_fullscreen
     );
     // Thickness changes the spec; screens the windows (made off the calling thread).
-    app.state::<Glow>().sent.lock().unwrap().clear();
     let app = app.clone();
-    std::thread::spawn(move || sync(&app));
+    std::thread::spawn(move || {
+        sync(&app);
+        show(&app);
+    });
     Ok(())
 }
 
@@ -202,7 +206,8 @@ pub fn set_enabled(app: &AppHandle, on: bool) -> Result<(), String> {
 /// What a glow window should show now (the page asks once it has loaded).
 pub fn current(app: &AppHandle, label: &str) -> Spec {
     let g = app.state::<Glow>();
-    let spec = g.spec.lock().unwrap().clone();
+    let o = options(app);
+    let spec = Spec::of(&g.look.lock().unwrap(), &o.thickness);
     let rect = g
         .windows
         .lock()
@@ -212,30 +217,18 @@ pub fn current(app: &AppHandle, label: &str) -> Spec {
         .map(|(_, r)| *r);
     // (Each lock above is released at the end of its statement.)
     match rect {
-        Some(r) if options(app).skip_fullscreen && fullscreen_rect() == Some(r) => Spec::default(),
+        Some(r) if o.skip_fullscreen && spec.state.is_some() && fullscreen_rect() == Some(r) => {
+            Spec::default()
+        }
         _ => spec,
     }
 }
 
-/// Seconds the shown state has lasted (restarts when it changes).
-pub fn elapsed(app: &AppHandle, status: &Value) -> f32 {
-    let shown = status["output"]["shown"].as_str().unwrap_or("").to_string();
+/// Sends each glow window what it should show, if that changed.
+pub fn show(app: &AppHandle) {
     let g = app.state::<Glow>();
-    let mut since = g.since.lock().unwrap();
-    match since.as_ref() {
-        Some((s, t)) if *s == shown => t.elapsed().as_secs_f32(),
-        _ => {
-            *since = Some((shown, Instant::now()));
-            0.0
-        }
-    }
-}
-
-/// New state to show: sent to each glow window when what it should show changed.
-pub fn show(app: &AppHandle, spec: Spec) {
-    let g = app.state::<Glow>();
-    *g.spec.lock().unwrap() = spec.clone();
     let o = options(app);
+    let spec = Spec::of(&g.look.lock().unwrap(), &o.thickness);
     let windows = g.windows.lock().unwrap().clone();
     let full = if o.skip_fullscreen && spec.state.is_some() {
         fullscreen_rect()
@@ -410,46 +403,6 @@ fn fullscreen_rect() -> Option<Rect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    fn set() -> Value {
-        json!({"needs.color":"#ffa62b","needs.light":"pulse","needs.brightness":"100","needs.duration":"30",
-            "working.color":"#3366ff","working.light":"off","working.brightness":"60",
-            "done.light":"pulse","done.color":"#22e04a","done.brightness":"50","done.duration":"10",
-            "idle.light":"solid","idle.color":"#ffd2a0","idle.brightness":"20"})
-    }
-    fn st(s: &str) -> Value {
-        json!({"output":{"shown":s},"quiet":{"active":false}})
-    }
-
-    #[test]
-    fn spec_follows_the_state_settings() {
-        let n = spec_of(&st("needs"), &set(), 0.0, "mid");
-        assert_eq!(n.state.as_deref(), Some("needs"));
-        assert_eq!((n.color.as_str(), n.light.as_str()), ("#ffa62b", "pulse"));
-        assert!((n.level - 1.0).abs() < 1e-5);
-        assert_eq!(n.thickness, "mid");
-        let d = spec_of(&st("done"), &set(), 0.0, "thin");
-        assert!((d.level - 0.6).abs() < 1e-5);
-        assert_eq!(
-            spec_of(&st("working"), &set(), 0.0, "mid"),
-            Spec::default(),
-            "off"
-        );
-        assert_eq!(spec_of(&st("idle"), &set(), 0.0, "mid").light, "solid");
-        assert_eq!(spec_of(&json!({}), &set(), 0.0, "mid"), Spec::default());
-    }
-
-    #[test]
-    fn duration_quiet_and_previews() {
-        assert_eq!(spec_of(&st("needs"), &set(), 31.0, "mid"), Spec::default());
-        assert!(spec_of(&st("test:needs"), &set(), 31.0, "mid")
-            .state
-            .is_some());
-        let mut q = st("needs");
-        q["quiet"]["active"] = json!(true);
-        assert!((spec_of(&q, &set(), 0.0, "mid").level - 0.4).abs() < 1e-5);
-    }
 
     #[test]
     fn options_are_checked() {

@@ -73,6 +73,16 @@ function ago(ms) {
   if (h < 48) return `${h} h ago`;
   return `${Math.round(h / 24)} days ago`;
 }
+// Replaces an element's content only when the markup changed. A redraw replaces the
+// controls inside, which closes an open dropdown and drops hover and focus, so status updates
+// (every few seconds) must not redraw what hasn't changed.
+const drawn = new WeakMap();
+function put(el, html) {
+  if (drawn.get(el) === html) return false;
+  drawn.set(el, html);
+  el.innerHTML = html;
+  return true;
+}
 const sw = (attrs, on, dis) => `<button type="button" class="sw" role="switch" aria-checked="${!!on}" ${attrs}${dis ? ' disabled' : ''}></button>`;
 const puckOn = () => !!(st && st.puck && st.puck.connected);
 
@@ -168,7 +178,7 @@ function renderHome() {
     $('fix-btn').hidden = !pr.btn;
     $('fix-btn').textContent = pr.btn || '';
   }
-  $('agents').innerHTML = AGENTS.map(agentRow).join('');
+  put($('agents'), AGENTS.map(agentRow).join(''));
   const m = (st.output && st.output.status && st.output.status.muted) || 'off';
   const q = st.quiet || {};
   let note = '';
@@ -178,13 +188,13 @@ function renderHome() {
   $('mute-note').hidden = !note;
   $('mute-note').textContent = note;
   if (A) {
-    $('tiles').innerHTML = STATES.map((s) => {
+    put($('tiles'), STATES.map((s) => {
       const a = A.states[s.id];
       const off = tileText(s.id) === 'Off';
       const c = a.screen.on || !a.puck.on ? a.screen.color : a.puck.color;
       return `<button type="button" class="tile${off ? ' off' : ''}" data-state="${s.id}" style="--c:${esc(c)}">
         <span class="lamp"></span><b>${esc(s.name)}</b><small>${esc(tileText(s.id))}</small></button>`;
-    }).join('');
+    }).join(''));
   }
   const p = st.puck || {};
   const old = p.connected && !p.compatible;
@@ -229,9 +239,10 @@ function renderState() {
     html = section('Light', 'puck', a.puck.on, lookBody('puck', a.puck, id));
     if (a.puck_sound) html += section('Sound', 'puck_sound', a.puck_sound.on, soundBody('puck_sound', a.puck_sound));
   }
-  $('st-body').innerHTML = html;
-  $('st-body').querySelectorAll('input[type=range]').forEach(paintRange);
-  fit();
+  if (put($('st-body'), html)) {
+    $('st-body').querySelectorAll('input[type=range]').forEach(paintRange);
+    fit();
+  }
 }
 function paintRange(r) {
   const p = ((r.value - r.min) / (r.max - r.min)) * 100;
@@ -312,8 +323,8 @@ function renderSettings() {
   $('app-ver').textContent = ver;
   $('app-restart').hidden = !u.ready;
   $('app-restart').textContent = u.ready ? `Restart to update to ${u.ready}` : '';
-  $('kv').innerHTML = [['Agent port', (st.http && st.http.port) || ''], ['Version', st.app.version]]
-    .map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
+  put($('kv'), [['Agent port', (st.http && st.http.port) || ''], ['Version', st.app.version]]
+    .map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join(''));
   if (!$('danger').innerHTML) resetButton();
 }
 async function setGlow(patch) {
@@ -386,8 +397,8 @@ function renderPuck() {
     $('fw-check').hidden = false;
     if (old) { $('fw-go').hidden = false; $('fw-go').textContent = 'Update firmware'; }
   }
-  $('pkv').innerHTML = [['Port', p.port], ['Board', p.board], ['Serial', p.serial]]
-    .filter(([, v]) => v).map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join('');
+  put($('pkv'), [['Port', p.port], ['Board', p.board], ['Serial', p.serial]]
+    .filter(([, v]) => v).map(([k, v]) => `<span>${esc(k)}</span><span class="mono">${esc(v)}</span>`).join(''));
 }
 $('puck-test').onclick = async () => {
   try { await invoke('puck_action', { action: 'puck_test' }); toast('Testing the puck'); } catch (e) { fail(e); }
@@ -487,8 +498,9 @@ async function refresh() {
     wasPuck = puckOn();
     if (view === 'v-state' && !wasPuck) tab = 'c';
   }
-  // Don't redraw a state page under a slider being dragged.
-  if (view === 'v-state' && document.activeElement && document.activeElement.type === 'range') return;
+  // Never redraw under a control in use: an open dropdown, a slider being dragged.
+  const f = document.activeElement;
+  if (f && (f.tagName === 'SELECT' || f.type === 'range')) return;
   render();
 }
 

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The puck's behaviour per `hn-usb/2`, as a pure state machine (time is passed in, ms).
 
+use crate::machine::{Durations, Machine, St};
 use hn_core::proto::{valid_id, SnapState, MAX_ENTRIES, MAX_LINE};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 pub const STATES: [&str; 4] = ["needs", "done", "working", "idle"];
 const LIGHTS: [&str; 8] = [
@@ -35,11 +36,8 @@ pub struct SimPuck {
     pub board: String,
     pub serial: String,
     pub settings: BTreeMap<String, String>,
-    entries: Vec<(String, SnapState)>,
-    lease_until: Option<u64>,
-    prev_needs: HashSet<String>,
-    flash_until: Option<u64>,
-    test: Option<(String, u64)>,
+    /// What's shown and when it changes: the firmware's own logic.
+    pub machine: Machine,
     mute: Mute,
     /// Every sound played, oldest first (for tests).
     pub sounds: Vec<String>,
@@ -116,11 +114,7 @@ impl SimPuck {
             serial: "HN00SIMULATOR000".into(),
             settings: defaults(fw2),
             fw2,
-            entries: Vec::new(),
-            lease_until: None,
-            prev_needs: HashSet::new(),
-            flash_until: None,
-            test: None,
+            machine: Machine::default(),
             mute: Mute::Off,
             sounds: Vec::new(),
             pending: None,
@@ -130,65 +124,53 @@ impl SimPuck {
 
     /// USB unmount, bus reset or power-up: table cleared, resting light, silent (§3).
     pub fn reset_link(&mut self) {
-        self.entries.clear();
-        self.lease_until = None;
-        self.prev_needs.clear();
-        self.test = None;
+        self.machine.clear();
+        self.machine.end_test();
+    }
+
+    /// The machine's durations follow the settings.
+    fn durations(&mut self) {
+        let get = |k: &str| {
+            self.settings
+                .get(k)
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0)
+        };
+        self.machine.durations = Durations {
+            needs: get("needs.duration"),
+            done: get("done.duration").max(1),
+            working: get("working.duration"),
+        };
     }
 
     pub fn tick(&mut self, now: u64) {
-        if let Some(until) = self.lease_until {
-            if now >= until {
-                self.entries.clear();
-                self.lease_until = None;
-                self.prev_needs.clear(); // a lapsed lease counts as empty (D-016)
-            }
-        }
-        if matches!(self.flash_until, Some(t) if now >= t) {
-            self.flash_until = None;
-        }
-        if matches!(&self.test, Some((_, t)) if now >= *t) {
-            self.test = None;
-        }
+        self.durations();
+        self.machine.tick(now);
         if matches!(self.mute, Mute::Until(t) if now >= t) {
             self.mute = Mute::Off;
         }
     }
 
-    /// The one state the whole ring shows (§3 priority).
+    /// The one state the whole ring shows (§3 priority); `test:<state>` during a preview.
     pub fn shown(&mut self, now: u64) -> String {
         self.tick(now);
         if self.suspended {
             return "dark".into();
         }
-        if let Some((st, _)) = &self.test {
-            return format!("test:{st}");
+        match self.machine.shown(now) {
+            (st, true) => format!("test:{}", st.name()),
+            (st, false) => st.name().into(),
         }
-        self.base_shown(now)
     }
 
-    /// What's shown ignoring a TEST preview.
-    fn base_shown(&mut self, now: u64) -> String {
+    /// When what's shown may change by itself next (ms), if ever.
+    pub fn next_change(&mut self, now: u64) -> Option<u64> {
         self.tick(now);
-        if self.suspended {
-            return "dark".into();
-        }
-        if self.flash_until.is_some() {
-            return "done".into();
-        }
-        if self.entries.iter().any(|(_, s)| *s == SnapState::Needs) {
-            return "needs".into();
-        }
-        if !self.entries.is_empty() {
-            return "working".into();
-        }
-        "idle".into()
+        self.machine.next_change(now)
     }
 
     pub fn lease_left_s(&self, now: u64) -> u64 {
-        self.lease_until
-            .map(|t| t.saturating_sub(now).div_ceil(1000))
-            .unwrap_or(0)
+        self.machine.lease_left_s(now)
     }
 
     fn play(&mut self, state: &str) {
@@ -223,14 +205,7 @@ impl SimPuck {
             "HELLO" => self.hello_json(),
             "SNAP" => self.snap(&args, now),
             "FLASH" if args == ["done"] => {
-                let secs: u64 = self
-                    .settings
-                    .get("done.duration")
-                    .and_then(|d| d.parse().ok())
-                    .unwrap_or(5)
-                    .max(1);
-                self.flash_until = Some(now + secs * 1000);
-                self.test = None;
+                self.machine.flash_done(now);
                 self.play("done");
                 "OK".into()
             }
@@ -274,7 +249,10 @@ impl SimPuck {
                 if args.len() == 1
                     && ["needs", "done", "working", "idle", "hello"].contains(&args[0]) =>
             {
-                self.test = Some((args[0].into(), now + 10_000));
+                // `hello` is the puck's own light-only hello: nothing to preview here.
+                if let Some(st) = St::parse(args[0]) {
+                    self.machine.start_test(st, now);
+                }
                 if args[0] == "needs" || args[0] == "done" {
                     self.play(args[0]);
                 }
@@ -288,6 +266,7 @@ impl SimPuck {
                     Mute::Until(t) => t.saturating_sub(now).div_ceil(60_000).to_string(),
                 };
                 let entries: Vec<Value> = self
+                    .machine
                     .entries
                     .iter()
                     .map(|(id, s)| json!({"id": id, "state": s.as_str()}))
@@ -335,21 +314,8 @@ impl SimPuck {
             entries.push((id.to_string(), st));
         }
         // Whole line validated: now apply.
-        let needs: HashSet<String> = entries
-            .iter()
-            .filter(|(_, s)| *s == SnapState::Needs)
-            .map(|(i, _)| i.clone())
-            .collect();
-        let before = self.base_shown(now);
-        if needs.iter().any(|id| !self.prev_needs.contains(id)) {
+        if self.machine.apply_snap(entries, lease, now).needs_sound {
             self.play("needs");
-        }
-        self.prev_needs = needs;
-        self.entries = entries;
-        self.lease_until = Some(now + lease * 1000);
-        // A TEST preview ends at once on any SNAP that changes what's shown.
-        if self.base_shown(now) != before {
-            self.test = None;
         }
         "OK".into()
     }

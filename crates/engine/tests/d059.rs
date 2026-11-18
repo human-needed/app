@@ -154,3 +154,69 @@ async fn the_app_pushes_its_settings_to_the_puck() {
     e.puck("SET done.color #fedcba").await.unwrap();
     assert_eq!(setting("done.color").as_deref(), Some("#fedcba"));
 }
+
+/// Waits for the screen look to change; returns it and how long that took.
+async fn next_look(
+    rx: &mut tokio::sync::watch::Receiver<Option<hn_engine::output::Screen>>,
+) -> (Option<hn_engine::output::Screen>, Duration) {
+    let t = std::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(15), rx.changed())
+        .await
+        .expect("a change")
+        .unwrap();
+    (rx.borrow_and_update().clone(), t.elapsed())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn screen_timing_is_exact_for_previews_and_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let (e, port) = start("timing", PuckTarget::None, dir.path()).await;
+    let mut a = e.alerts_get();
+    a.states.get_mut("needs").unwrap().screen.duration = 3;
+    a.states.get_mut("needs").unwrap().screen.light = "blink".into();
+    a.states.get_mut("done").unwrap().screen.duration = 1;
+    e.alerts_set(a).await.unwrap();
+    let mut rx = e.screen();
+    rx.borrow_and_update();
+
+    // Preview: shows at once, for the state's duration (3 s), then off.
+    e.puck("TEST needs").await.unwrap();
+    let (look, _) = next_look(&mut rx).await;
+    let look = look.expect("on");
+    assert_eq!(
+        (look.state.as_str(), look.light.as_str(), look.preview),
+        ("needs", "blink", true)
+    );
+    let (look, took) = next_look(&mut rx).await;
+    assert_eq!(look, None);
+    assert!(
+        took >= Duration::from_millis(2_800) && took < Duration::from_millis(3_600),
+        "{took:?}"
+    );
+
+    // A real event takes the same path and the same duration.
+    assert_eq!(post(port, "/v1/event/claude/needs").await, 204);
+    let (look, _) = next_look(&mut rx).await;
+    assert_eq!(
+        look.as_ref().map(|l| (l.state.as_str(), l.preview)),
+        Some(("needs", false))
+    );
+    let (look, took) = next_look(&mut rx).await;
+    assert_eq!(look, None, "needs ran out; working underneath doesn't glow");
+    assert!(
+        took >= Duration::from_millis(2_500) && took < Duration::from_millis(3_600),
+        "{took:?}"
+    );
+
+    // A preview of a state with no limit lasts the firmware's 10 s at most; a settings change
+    // shows at once.
+    e.puck("TEST done").await.unwrap();
+    let (look, _) = next_look(&mut rx).await;
+    assert_eq!(look.map(|l| l.state), Some("done".into()));
+    let (look, took) = next_look(&mut rx).await;
+    assert_eq!(look, None);
+    assert!(
+        took < Duration::from_millis(1_600),
+        "done lasts 1 s: {took:?}"
+    );
+}

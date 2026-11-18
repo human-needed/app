@@ -15,6 +15,7 @@
 //! - [`agents`]: read-only per-agent status (D-054: the user installs the plugins).
 //! - [`alerts`]: the app's alert settings per state, for this computer and the puck (D-059).
 //! - [`here`]: "this computer" (D-059): screen edges and sound, driven like a puck.
+//! - [`output`]: what the screen edges show, from the shown state and the alert settings.
 //! - [`tones`]: the puck's sounds rendered for the computer's speakers.
 
 pub mod agents;
@@ -28,6 +29,7 @@ pub mod ipc;
 pub mod link;
 pub mod liveness;
 pub mod log;
+pub mod output;
 pub mod paths;
 pub mod procs;
 pub mod proxy;

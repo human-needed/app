@@ -7,6 +7,7 @@
 //! `BOOTSEL` becomes a fake RPI-RP2 drive folder (when one is configured) that "installs" the
 //! first `.uf2` copied into it, taking the new version from the file name (`…-X.Y.Z.uf2`).
 
+pub mod machine;
 pub mod puck;
 
 use puck::Pending;

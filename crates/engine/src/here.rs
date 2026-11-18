@@ -61,6 +61,20 @@ impl Here {
         (reply, sounds)
     }
 
+    /// What's shown now (`needs`, `done`, `working`, `idle`) and whether it's a preview.
+    pub fn shown(&mut self, now: u64) -> (String, bool) {
+        let s = self.puck.shown(now);
+        match s.strip_prefix("test:") {
+            Some(st) => (st.to_string(), true),
+            None => (s, false),
+        }
+    }
+
+    /// When what's shown may change by itself next (ms), if ever.
+    pub fn next_change(&mut self, now: u64) -> Option<u64> {
+        self.puck.next_change(now)
+    }
+
     fn level(&self, key: &str) -> f32 {
         self.puck
             .settings
