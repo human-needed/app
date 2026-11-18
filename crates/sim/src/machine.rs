@@ -89,8 +89,10 @@ pub struct Machine {
     needs_since: u64,
     working_since: u64,
     done_on: bool,
+    done_since: u64,
     done_end: u64,
     test: Option<(St, u64)>,
+    test_since: u64,
     test_base: Option<St>,
     pub durations: Durations,
     /// Longest preview (ms): `None` = the state's own duration (hn-usb/2 1.3); older
@@ -130,6 +132,18 @@ impl Machine {
         match self.test {
             Some((st, _)) => (st, true),
             None => (self.base(now), false),
+        }
+    }
+
+    /// When what's shown now started (ms; 0 for idle, which has no start). Durations run from
+    /// here, so light animations do too: a whole number of cycles fits any duration.
+    pub fn shown_since(&self, now: u64) -> u64 {
+        match self.shown(now) {
+            (_, true) => self.test_since,
+            (St::Done, _) => self.done_since,
+            (St::Needs, _) => self.needs_since,
+            (St::Working, _) => self.working_since,
+            (St::Idle, _) => 0,
         }
     }
 
@@ -188,6 +202,7 @@ impl Machine {
     /// `FLASH done`: the done light for its duration.
     pub fn flash_done(&mut self, now: u64) -> Events {
         self.done_on = true;
+        self.done_since = now;
         self.done_end = now + self.durations.of(St::Done) as u64 * 1000;
         Events {
             test_ended: self.check_test(now),
@@ -204,6 +219,7 @@ impl Machine {
         };
         let ms = self.preview_cap.map_or(d, |cap| d.min(cap));
         self.test = Some((st, now + ms));
+        self.test_since = now;
         self.test_base = Some(self.base(now));
     }
 
@@ -374,6 +390,39 @@ mod tests {
             m.apply_snap(vec![e("0000000a", SnapState::Needs)], 30, 30_001)
                 .needs_sound
         );
+    }
+
+    #[test]
+    fn shown_since_is_when_the_shown_state_started() {
+        let mut m = Machine::new(d(5, 3, 0));
+        assert_eq!(m.shown_since(0), 0);
+        m.apply_snap(vec![e("0000000a", SnapState::Working)], 30, 100);
+        assert_eq!(m.shown_since(100), 100);
+        m.apply_snap(
+            vec![
+                e("0000000a", SnapState::Working),
+                e("0000000b", SnapState::Needs),
+            ],
+            30,
+            200,
+        );
+        assert_eq!(m.shown_since(200), 200);
+        // A new id in needs starts needs (and its duration) again.
+        m.apply_snap(
+            vec![
+                e("0000000a", SnapState::Working),
+                e("0000000c", SnapState::Needs),
+            ],
+            30,
+            300,
+        );
+        assert_eq!(m.shown_since(300), 300);
+        m.flash_done(400);
+        assert_eq!(m.shown_since(400), 400);
+        // Previewing the same state again restarts it.
+        m.start_test(St::Done, 500);
+        m.start_test(St::Done, 600);
+        assert_eq!(m.shown_since(600), 600);
     }
 
     #[test]

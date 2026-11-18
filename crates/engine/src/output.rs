@@ -20,10 +20,19 @@ pub struct Screen {
     pub level: f32,
     /// A `TEST` preview.
     pub preview: bool,
+    /// When this state started (ms since the epoch; 0 for idle). Animations are timed from
+    /// here, like the state's duration, so they end on a whole cycle.
+    pub since: u64,
 }
 
 /// The look for `state` (as the machine shows it), or none when its screen edges are off.
-pub fn screen(alerts: &Alerts, state: &str, preview: bool, quiet: bool) -> Option<Screen> {
+pub fn screen(
+    alerts: &Alerts,
+    state: &str,
+    preview: bool,
+    since: u64,
+    quiet: bool,
+) -> Option<Screen> {
     let a = alerts.states.get(state)?;
     let l = &a.screen;
     if !l.on {
@@ -42,6 +51,7 @@ pub fn screen(alerts: &Alerts, state: &str, preview: bool, quiet: bool) -> Optio
         light: l.light.clone(),
         level: 0.2 + 0.8 * level,
         preview,
+        since,
     })
 }
 
@@ -52,21 +62,21 @@ mod tests {
     #[test]
     fn follows_the_state_settings() {
         let mut a = Alerts::default();
-        let n = screen(&a, "needs", false, false).unwrap();
+        let n = screen(&a, "needs", false, 0, false).unwrap();
         assert_eq!((n.color.as_str(), n.light.as_str()), ("#ffa62b", "pulse"));
         assert!((n.level - 1.0).abs() < 1e-5);
         // Working and idle don't glow by default.
-        assert_eq!(screen(&a, "working", false, false), None);
-        assert_eq!(screen(&a, "idle", false, false), None);
-        assert_eq!(screen(&a, "dark", false, false), None);
+        assert_eq!(screen(&a, "working", false, 0, false), None);
+        assert_eq!(screen(&a, "idle", false, 0, false), None);
+        assert_eq!(screen(&a, "dark", false, 0, false), None);
         a.states.get_mut("done").unwrap().screen.brightness = 50;
-        assert!((screen(&a, "done", true, false).unwrap().level - 0.6).abs() < 1e-5);
-        assert!(screen(&a, "done", true, false).unwrap().preview);
+        assert!((screen(&a, "done", true, 7, false).unwrap().level - 0.6).abs() < 1e-5);
+        assert!(screen(&a, "done", true, 7, false).unwrap().preview);
     }
 
     #[test]
     fn quiet_hours_dim_it() {
         let a = Alerts::default();
-        assert!((screen(&a, "needs", false, true).unwrap().level - 0.4).abs() < 1e-5);
+        assert!((screen(&a, "needs", false, 0, true).unwrap().level - 0.4).abs() < 1e-5);
     }
 }
