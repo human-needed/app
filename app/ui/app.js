@@ -17,7 +17,7 @@ const STATES = [
   { id: 'idle', name: 'Idle' },
 ];
 const STATE_NAME = Object.fromEntries(STATES.map((s) => [s.id, s.name]));
-const LIGHTS = [['solid', 'Solid'], ['breathe', 'Breathe'], ['pulse', 'Pulse'], ['blink', 'Blink'], ['heartbeat', 'Heartbeat'], ['flicker', 'Candle flicker'], ['spin', 'Spin']];
+const LIGHTS = [['solid', 'Solid'], ['breathe', 'Breathe'], ['blink', 'Blink'], ['heartbeat', 'Heartbeat'], ['flicker', 'Candle flicker'], ['spin', 'Spin']];
 const SOUNDS = [['ding', 'Ding'], ['chime', 'Chime'], ['rising', 'Rising'], ['arpeggio', 'Arpeggio'], ['bell', 'Bell'], ['beeps', 'Beeps'], ['bloop', 'Bloop'],
   ['bright', 'Bright (melody)'], ['clock', 'Clock (melody)'], ['doorbell', 'Doorbell (melody)'], ['fanfare', 'Fanfare (melody)'], ['ripple', 'Ripple (melody)'],
   ['call', 'Call (melody)'], ['lullaby', 'Lullaby (melody)'], ['harp', 'Harp (melody)']];

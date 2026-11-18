@@ -173,7 +173,7 @@ async fn the_app_pushes_its_settings_to_the_puck() {
     assert!(ok, "pushed");
     assert_eq!(setting("done.sound").as_deref(), Some("none"));
     assert_eq!(setting("brightness").as_deref(), Some("100"));
-    assert_eq!(setting("needs.light").as_deref(), Some("pulse"));
+    assert_eq!(setting("needs.light").as_deref(), Some("breathe"));
     // A change in the app reaches the puck at once.
     let mut b = e.alerts_get();
     b.states.get_mut("needs").unwrap().puck.on = false;

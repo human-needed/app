@@ -19,15 +19,7 @@ pub const STATES: [&str; 4] = ["needs", "done", "working", "idle"];
 /// States that make a sound.
 pub const SOUND_STATES: [&str; 2] = ["needs", "done"];
 /// Light animations (the firmware's, without "off": each output has its own switch).
-pub const LIGHTS: [&str; 7] = [
-    "solid",
-    "breathe",
-    "pulse",
-    "blink",
-    "heartbeat",
-    "flicker",
-    "spin",
-];
+pub const LIGHTS: [&str; 6] = ["solid", "breathe", "blink", "heartbeat", "flicker", "spin"];
 /// Sounds (the firmware's, without "none").
 pub const SOUNDS: [&str; 15] = [
     "ding", "chime", "rising", "arpeggio", "bell", "beeps", "bloop", "bright", "clock", "doorbell",
@@ -103,15 +95,15 @@ fn sound(on: bool, s: &str, volume: u8) -> Option<Sound> {
 pub fn default_state(st: &str) -> StateAlerts {
     match st {
         "needs" => StateAlerts {
-            screen: look(true, "pulse", "#ffa62b", 100, 0),
+            screen: look(true, "breathe", "#ffa62b", 100, 0),
             sound: sound(true, "call", 70),
-            puck: look(true, "pulse", "#ffa62b", 100, 0),
+            puck: look(true, "breathe", "#ffa62b", 100, 0),
             puck_sound: sound(true, "call", 70),
         },
         "done" => StateAlerts {
-            screen: look(true, "pulse", "#22e04a", 100, 10),
+            screen: look(true, "breathe", "#22e04a", 100, 10),
             sound: sound(true, "bright", 70),
-            puck: look(true, "pulse", "#22e04a", 100, 3),
+            puck: look(true, "breathe", "#22e04a", 100, 3),
             puck_sound: sound(true, "bright", 70),
         },
         "working" => StateAlerts {
@@ -140,6 +132,26 @@ impl Default for Alerts {
             puck_imported: false,
         }
     }
+}
+
+/// Pulse was removed: saved settings, older pucks and `hn set` get Breathe in its place.
+fn current_light(light: &str) -> &str {
+    if light == "pulse" {
+        "breathe"
+    } else {
+        light
+    }
+}
+
+/// A saved look, with a removed light replaced.
+fn current_look(file: &Value) -> Value {
+    let mut look = file.clone();
+    if let Some(l) = look.get_mut("light") {
+        if *l == "pulse" {
+            *l = Value::from("breathe");
+        }
+    }
+    look
 }
 
 fn valid_color(c: &str) -> bool {
@@ -210,8 +222,12 @@ impl Alerts {
         for st in STATES {
             let file = &v["states"][st];
             let mut s = default_state(st);
-            s.screen = merged(&s.screen, &file["screen"], |l| check_look(st, l).is_ok());
-            s.puck = merged(&s.puck, &file["puck"], |l| check_look(st, l).is_ok());
+            s.screen = merged(&s.screen, &current_look(&file["screen"]), |l| {
+                check_look(st, l).is_ok()
+            });
+            s.puck = merged(&s.puck, &current_look(&file["puck"]), |l| {
+                check_look(st, l).is_ok()
+            });
             if let Some(d) = s.sound.clone() {
                 s.sound = Some(merged(&d, &file["sound"], |x| {
                     check_sound(st, &Some(x.clone())).is_ok()
@@ -311,12 +327,13 @@ impl Alerts {
         for st in STATES {
             let mut a = self.state(st);
             if let Some(light) = text(&all[format!("{st}.light")]) {
+                let light = current_light(&light);
                 if light == "off" {
                     a.puck.on = false;
-                } else if LIGHTS.contains(&light.as_str()) {
+                } else if LIGHTS.contains(&light) {
                     a.puck.on = true;
-                    a.puck.light = light.clone();
-                    a.screen.light = light;
+                    a.puck.light = light.into();
+                    a.screen.light = light.into();
                 }
             }
             if let Some(c) = text(&all[format!("{st}.color")]).filter(|c| valid_color(c)) {
@@ -377,7 +394,7 @@ impl Alerts {
                 "light" => {
                     for l in [&mut a.screen, &mut a.puck] {
                         l.on = true;
-                        l.light = value.into();
+                        l.light = current_light(value).into();
                     }
                 }
                 "color" => {
@@ -476,7 +493,7 @@ mod tests {
             .on = false;
         let p = a.puck_settings();
         assert_eq!(p["needs.sound"], "none");
-        assert_eq!(p["needs.light"], "pulse");
+        assert_eq!(p["needs.light"], "breathe");
         assert_eq!(p["brightness"], "100");
         assert_eq!(p["done.duration"], "3");
         assert!(!p.contains_key("idle.sound") && !p.contains_key("idle.duration"));
@@ -547,7 +564,7 @@ mod tests {
         assert!(a.apply_key("done.duration", "0").is_err());
         assert!(a.apply_key("nope.color", "#000000").is_err());
         assert_eq!(
-            a.states["needs"].screen.light, "pulse",
+            a.states["needs"].screen.light, "breathe",
             "a failed set changes nothing"
         );
     }
@@ -565,10 +582,35 @@ mod tests {
         std::fs::write(f.as_ref().unwrap(), v.to_string()).unwrap();
         let b = Alerts::load(&f);
         // Only the bad field falls back.
-        assert_eq!(b.states["needs"].screen.light, "pulse");
+        assert_eq!(b.states["needs"].screen.light, "breathe");
         assert_eq!(b.states["done"].screen.color, "#010203");
         std::fs::write(f.as_ref().unwrap(), "nope").unwrap();
         assert_eq!(Alerts::load(&f), Alerts::default());
+    }
+
+    #[test]
+    fn pulse_becomes_breathe_everywhere() {
+        let d = tempfile::tempdir().unwrap();
+        let f = Some(d.path().join("alerts.json"));
+        let old =
+            json!({"states":{"working":{"screen":{"light":"pulse"},"puck":{"light":"pulse"}}}});
+        std::fs::write(f.as_ref().unwrap(), old.to_string()).unwrap();
+        let mut a = Alerts::load(&f);
+        assert_eq!(a.states["working"].screen.light, "breathe");
+        assert_eq!(a.states["working"].puck.light, "breathe");
+
+        a.import_puck(&json!({"idle.light":"pulse"}));
+        assert_eq!(a.states["idle"].puck.light, "breathe");
+        assert_eq!(a.states["idle"].screen.light, "breathe");
+
+        a.apply_key("done.light", "blink").unwrap();
+        a.apply_key("done.light", "pulse").unwrap();
+        assert_eq!(a.states["done"].screen.light, "breathe");
+        assert_eq!(a.states["done"].puck.light, "breathe");
+
+        let mut bad = Alerts::default();
+        bad.states.get_mut("needs").unwrap().screen.light = "pulse".into();
+        assert!(bad.check().is_err(), "no longer a light to choose");
     }
 
     #[test]

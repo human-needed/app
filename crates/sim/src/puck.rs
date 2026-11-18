@@ -7,11 +7,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub const STATES: [&str; 4] = ["needs", "done", "working", "idle"];
-const LIGHTS: [&str; 8] = [
+const LIGHTS: [&str; 7] = [
     "off",
     "solid",
     "breathe",
-    "pulse",
     "blink",
     "heartbeat",
     "flicker",
@@ -62,14 +61,14 @@ fn defaults(fw2: bool) -> BTreeMap<String, String> {
     // The simulator's own defaults (tests rely on them), or firmware 2.0.x's (`settings.cpp`).
     let styles = if fw2 {
         [
-            ("needs", "#ffa62b", "pulse", "call", "0"),
-            ("done", "#22e04a", "pulse", "bright", "3"),
+            ("needs", "#ffa62b", "breathe", "call", "0"),
+            ("done", "#22e04a", "breathe", "bright", "3"),
             ("working", "#3366ff", "spin", "none", "0"),
             ("idle", "#ffd2a0", "solid", "none", "0"),
         ]
     } else {
         [
-            ("needs", "#ff8800", "pulse", "chime", "0"),
+            ("needs", "#ff8800", "breathe", "chime", "0"),
             ("done", "#22cc55", "solid", "ding", "5"),
             ("working", "#3366ff", "breathe", "none", "0"),
             ("idle", "#ffaa66", "solid", "none", "0"),
@@ -366,8 +365,7 @@ pub fn schema() -> Value {
         &[
             "Off",
             "Solid",
-            "Breathe (slow)",
-            "Pulse",
+            "Breathe",
             "Blink",
             "Heartbeat",
             "Candle flicker",

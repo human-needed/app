@@ -33,7 +33,7 @@ pub struct Spec {
     /// `needs` | `done` | `working` | `idle`; `None` = nothing.
     pub state: Option<String>,
     pub color: String,
-    /// The light's name (`pulse`, `spin`, …).
+    /// The light's name (`breathe`, `spin`, …).
     pub light: String,
     /// 0..1.
     pub level: f32,
