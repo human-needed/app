@@ -249,3 +249,22 @@ async fn screen_timing_is_exact_for_previews_and_events() {
         "done lasts 1 s: {took:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_preview_lasts_exactly_the_set_duration_even_over_10s() {
+    let dir = tempfile::tempdir().unwrap();
+    let (e, _) = start("long", PuckTarget::None, dir.path()).await;
+    let mut a = e.alerts_get();
+    a.states.get_mut("done").unwrap().screen.duration = 12;
+    e.alerts_set(a).await.unwrap();
+    let mut rx = e.screen();
+    rx.borrow_and_update();
+    e.puck("TEST done").await.unwrap();
+    assert!(next_look(&mut rx).await.0.is_some());
+    let (look, took) = next_look(&mut rx).await;
+    assert_eq!(look, None);
+    assert!(
+        took >= Duration::from_millis(11_800) && took < Duration::from_millis(12_600),
+        "{took:?}"
+    );
+}

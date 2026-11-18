@@ -114,7 +114,7 @@ impl SimPuck {
             serial: "HN00SIMULATOR000".into(),
             settings: defaults(fw2),
             fw2,
-            machine: Machine::default(),
+            machine: Machine::new(Default::default()),
             mute: Mute::Off,
             sounds: Vec::new(),
             pending: None,

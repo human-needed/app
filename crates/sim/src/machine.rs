@@ -6,8 +6,10 @@
 //! - shown, highest first: `TEST` preview, `FLASH done`, `needs`, `working`, `idle`;
 //! - each state's `duration` runs from when that state started (0 = as long as it lasts); a new
 //!   id entering `needs` starts `needs` again; once it runs out, the next state shows;
-//! - `TEST <state>` previews for that state's duration, capped at 10 s, and ends at once when
-//!   what would be shown under it changes;
+//! - `TEST <state>` previews for that state's duration and ends at once when what would be
+//!   shown under it changes. The puck caps a preview at 10 s (hn-usb/2); the app's own output
+//!   doesn't ([`Machine::preview_cap`]), so its preview lasts exactly as long as the real
+//!   state would. A state with no limit previews for 10 s;
 //! - the lease running out clears the table.
 //!
 //! Time is passed in (ms). [`Machine::next_change`] says exactly when what's shown can change
@@ -89,12 +91,15 @@ pub struct Machine {
     test: Option<(St, u64)>,
     test_base: Option<St>,
     pub durations: Durations,
+    /// Longest preview (ms): the firmware's 10 s, or `None` = the state's own duration.
+    pub preview_cap: Option<u64>,
 }
 
 impl Machine {
     pub fn new(durations: Durations) -> Self {
         Self {
             durations,
+            preview_cap: Some(TEST_MAX_MS),
             ..Default::default()
         }
     }
@@ -187,13 +192,14 @@ impl Machine {
         }
     }
 
-    /// `TEST <state>`: a preview for the state's duration, at most 10 s.
+    /// `TEST <state>`: a preview for the state's duration (10 s for a state with no limit),
+    /// at most [`Machine::preview_cap`].
     pub fn start_test(&mut self, st: St, now: u64) {
         let d = self.durations.of(st) as u64 * 1000;
-        let ms = if d == 0 || d > TEST_MAX_MS {
-            TEST_MAX_MS
-        } else {
-            d
+        let ms = match (d, self.preview_cap) {
+            (0, _) => TEST_MAX_MS,
+            (d, Some(cap)) => d.min(cap),
+            (d, None) => d,
         };
         self.test = Some((st, now + ms));
         self.test_base = Some(self.base(now));
@@ -327,10 +333,14 @@ mod tests {
         // Duration 0 (as long as it lasts): capped at 10 s.
         m.start_test(St::Working, 5_000);
         assert_eq!(m.next_change(5_000), Some(15_000));
-        // Over 10 s: capped too.
+        // Over 10 s: capped on the puck…
         m.durations.done = 30;
         m.start_test(St::Done, 20_000);
         assert_eq!(m.next_change(20_000), Some(30_000));
+        // …but exactly the real duration on the computer.
+        m.preview_cap = None;
+        m.start_test(St::Done, 40_000);
+        assert_eq!(m.next_change(40_000), Some(70_000));
     }
 
     #[test]
