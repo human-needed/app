@@ -35,10 +35,11 @@ async fn status(
     Ok(st)
 }
 
-/// What this glow window shows now (the glow page asks when it loads).
+/// What this glow window shows now (the glow page asks when it loads). Async, so it never
+/// runs on the main thread (which may be busy making windows).
 #[tauri::command]
-fn glow_spec(app: AppHandle, window: tauri::Window) -> glow::Spec {
-    glow::current(&app, window.label())
+async fn glow_spec(app: AppHandle, window: tauri::Window) -> Result<glow::Spec, ()> {
+    Ok(glow::current(&app, window.label()))
 }
 
 /// Screen-edge options: paused or not, screens, thickness, skip full-screen apps.
