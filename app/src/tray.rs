@@ -232,8 +232,13 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
             }
             // Screen-edge glow (D-059): windows for the current monitors, then what to show.
             if screens_at.is_none_or(|t| t.elapsed().as_secs() >= 5) {
+                let first = screens_at.is_none();
                 crate::glow::sync(&app);
                 screens_at = Some(std::time::Instant::now());
+                if first {
+                    // Proof the main thread runs after startup (the CI smoke run waits for it).
+                    let _ = app.run_on_main_thread(|| hn_engine::log!("ui: ready"));
+                }
             }
             let o = crate::glow::options(&app);
             let elapsed = crate::glow::elapsed(&app, &status);

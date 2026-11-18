@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl};
@@ -83,6 +84,8 @@ pub struct Glow {
     sent: Mutex<Vec<(String, Spec)>>,
     /// The state shown and since when (for each state's duration).
     since: Mutex<Option<(String, Instant)>>,
+    /// A [`sync`] is making or closing windows (only one at a time).
+    syncing: AtomicBool,
 }
 
 fn file() -> PathBuf {
@@ -150,11 +153,12 @@ pub fn spec_of(status: &Value, settings: &Value, elapsed: f32, thickness: &str) 
     }
 }
 
+/// Loads the options. The windows are made by the tray loop's first [`sync`], off the main
+/// thread, so setup never waits on window creation.
 pub fn init(app: &AppHandle) {
     let g = Glow::default();
     *g.options.lock().unwrap() = load();
     app.manage(g);
-    sync(app);
 }
 
 pub fn options(app: &AppHandle) -> Options {
@@ -174,9 +178,10 @@ pub fn set_options(app: &AppHandle, o: Options) -> Result<(), String> {
         o.thickness,
         o.skip_fullscreen
     );
-    // Thickness changes the spec; screens the windows.
+    // Thickness changes the spec; screens the windows (made off the calling thread).
     app.state::<Glow>().sent.lock().unwrap().clear();
-    sync(app);
+    let app = app.clone();
+    std::thread::spawn(move || sync(&app));
     Ok(())
 }
 
@@ -205,6 +210,7 @@ pub fn current(app: &AppHandle, label: &str) -> Spec {
         .iter()
         .find(|(l, _)| l == label)
         .map(|(_, r)| *r);
+    // (Each lock above is released at the end of its statement.)
     match rect {
         Some(r) if options(app).skip_fullscreen && fullscreen_rect() == Some(r) => Spec::default(),
         _ => spec,
@@ -236,19 +242,26 @@ pub fn show(app: &AppHandle, spec: Spec) {
     } else {
         None
     };
-    let mut sent = g.sent.lock().unwrap();
-    for (label, rect) in windows {
-        let want = if full == Some(rect) {
-            Spec::default()
-        } else {
-            spec.clone()
-        };
-        if sent.iter().any(|(l, s)| *l == label && *s == want) {
-            continue;
+    // Work out what to send under the lock, send without it.
+    let mut out = vec![];
+    {
+        let mut sent = g.sent.lock().unwrap();
+        for (label, rect) in windows {
+            let want = if full == Some(rect) {
+                Spec::default()
+            } else {
+                spec.clone()
+            };
+            if sent.iter().any(|(l, s)| *l == label && *s == want) {
+                continue;
+            }
+            sent.retain(|(l, _)| *l != label);
+            sent.push((label.clone(), want.clone()));
+            out.push((label, want));
         }
+    }
+    for (label, want) in out {
         let _ = app.emit_to(label.as_str(), "glow", &want);
-        sent.retain(|(l, _)| *l != label);
-        sent.push((label, want));
     }
 }
 
@@ -276,28 +289,37 @@ pub fn sync(app: &AppHandle) {
             .collect(),
     };
     let g = app.state::<Glow>();
-    let mut have = g.windows.lock().unwrap();
     let alive = app
         .webview_windows()
         .into_iter()
         .filter(|(l, _)| l.starts_with(PREFIX))
         .count();
-    if have.iter().map(|(_, r)| *r).collect::<Vec<_>>() == screens && alive == screens.len() {
+    let same = {
+        let have = g.windows.lock().unwrap();
+        have.iter().map(|(_, r)| *r).collect::<Vec<_>>() == screens && alive == screens.len()
+    };
+    if same || g.syncing.swap(true, Ordering::SeqCst) {
         return;
     }
+    // No lock is held while windows are made or closed: making one runs the main thread's
+    // event loop, where a glow page's `glow_spec` may need these locks (beta.7 hang).
+    *g.windows.lock().unwrap() = vec![];
+    g.sent.lock().unwrap().clear();
     for (label, w) in app.webview_windows() {
         if label.starts_with(PREFIX) {
             let _ = w.destroy();
         }
     }
-    have.clear();
-    g.sent.lock().unwrap().clear();
+    let mut made = vec![];
     for (i, r) in screens.into_iter().enumerate() {
         match make(app, i, r) {
-            Ok(label) => have.push((label, r)),
+            Ok(label) => made.push((label, r)),
             Err(e) => hn_engine::log!("glow: window for screen {i}: {e}"),
         }
     }
+    hn_engine::log!("glow: {} window(s)", made.len());
+    *g.windows.lock().unwrap() = made;
+    g.syncing.store(false, Ordering::SeqCst);
 }
 
 fn make(app: &AppHandle, i: usize, (x, y, w, h): Rect) -> tauri::Result<String> {

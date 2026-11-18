@@ -28,3 +28,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Unit + integration tests: HTTP hub -> engine -> puck simulator.
       - run: cargo test --workspace
+      # Launch the app itself and check it starts (the main thread runs, the hub answers).
+      # Linux runners have no desktop session for the tray, so Windows and macOS only.
+      - name: Startup smoke run
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          cargo build -p humanneeded
+          scripts/smoke.sh target/debug/humanneeded
