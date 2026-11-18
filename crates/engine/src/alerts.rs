@@ -191,7 +191,10 @@ impl Alerts {
         Ok(())
     }
 
-    /// Loads `alerts.json`; missing or bad = defaults (a bad state alone = its defaults).
+    /// Loads `alerts.json`. Each output of each state (screen, sound, puck, puck sound) keeps
+    /// the fields it has that are valid; anything missing, unknown or bad falls back to that
+    /// state's defaults. So a file from an older version (fewer fields), a hand edit or a
+    /// newer version (extra fields) never loses the rest of the user's settings.
     pub fn load(file: &Option<PathBuf>) -> Self {
         let Some(v) = file
             .as_ref()
@@ -205,15 +208,21 @@ impl Alerts {
             ..Self::default()
         };
         for st in STATES {
-            if let Ok(s) = serde_json::from_value::<StateAlerts>(v["states"][st].clone()) {
-                if check_look(st, &s.screen).is_ok()
-                    && check_look(st, &s.puck).is_ok()
-                    && check_sound(st, &s.sound).is_ok()
-                    && check_sound(st, &s.puck_sound).is_ok()
-                {
-                    a.states.insert(st.into(), s);
-                }
+            let file = &v["states"][st];
+            let mut s = default_state(st);
+            s.screen = merged(&s.screen, &file["screen"], |l| check_look(st, l).is_ok());
+            s.puck = merged(&s.puck, &file["puck"], |l| check_look(st, l).is_ok());
+            if let Some(d) = s.sound.clone() {
+                s.sound = Some(merged(&d, &file["sound"], |x| {
+                    check_sound(st, &Some(x.clone())).is_ok()
+                }));
             }
+            if let Some(d) = s.puck_sound.clone() {
+                s.puck_sound = Some(merged(&d, &file["puck_sound"], |x| {
+                    check_sound(st, &Some(x.clone())).is_ok()
+                }));
+            }
+            a.states.insert(st.into(), s);
         }
         a
     }
@@ -408,6 +417,30 @@ impl Alerts {
     }
 }
 
+/// `default` with each of `file`'s fields that keeps it valid (checked one field at a time).
+fn merged<T>(default: &T, file: &Value, ok: impl Fn(&T) -> bool) -> T
+where
+    T: Clone + Serialize + serde::de::DeserializeOwned,
+{
+    let mut cur = default.clone();
+    let Some(fields) = file.as_object() else {
+        return cur;
+    };
+    for (k, val) in fields {
+        let mut v = serde_json::to_value(&cur).unwrap_or(Value::Null);
+        if v.get(k).is_none() {
+            continue; // unknown field (a newer version)
+        }
+        v[k] = val.clone();
+        if let Ok(next) = serde_json::from_value::<T>(v) {
+            if ok(&next) {
+                cur = next;
+            }
+        }
+    }
+    cur
+}
+
 fn text(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
@@ -531,9 +564,44 @@ mod tests {
         v["states"]["needs"]["screen"]["light"] = json!("disco");
         std::fs::write(f.as_ref().unwrap(), v.to_string()).unwrap();
         let b = Alerts::load(&f);
-        assert_eq!(b.states["needs"], default_state("needs"));
+        // Only the bad field falls back.
+        assert_eq!(b.states["needs"].screen.light, "pulse");
         assert_eq!(b.states["done"].screen.color, "#010203");
         std::fs::write(f.as_ref().unwrap(), "nope").unwrap();
         assert_eq!(Alerts::load(&f), Alerts::default());
+    }
+
+    #[test]
+    fn older_or_partial_files_keep_what_they_have() {
+        let d = tempfile::tempdir().unwrap();
+        let f = Some(d.path().join("alerts.json"));
+        // Missing fields and outputs (an older or hand-written file), an unknown field and a
+        // bad value: everything valid is kept, the rest is the state's defaults.
+        let old = json!({"version":1,"puck_imported":true,"states":{
+            "needs":{"screen":{"light":"blink","color":"#123456"},"puck":{"on":false,"future":1}},
+            "done":{"screen":{"duration":0,"color":"#abcdef"},"sound":{"volume":200,"sound":"harp"}},
+            "working":"garbage"}});
+        std::fs::write(f.as_ref().unwrap(), old.to_string()).unwrap();
+        let a = Alerts::load(&f);
+        assert!(a.check().is_ok());
+        assert!(a.puck_imported);
+        let n = &a.states["needs"];
+        assert_eq!(
+            (n.screen.light.as_str(), n.screen.color.as_str()),
+            ("blink", "#123456")
+        );
+        assert_eq!(
+            n.screen.brightness,
+            default_state("needs").screen.brightness
+        );
+        assert!(!n.puck.on);
+        assert_eq!(n.sound, default_state("needs").sound);
+        let dn = &a.states["done"];
+        assert_eq!(dn.screen.color, "#abcdef");
+        assert_eq!(dn.screen.duration, 10, "done can't last 0 s: default kept");
+        let snd = dn.sound.as_ref().unwrap();
+        assert_eq!((snd.sound.as_str(), snd.volume), ("harp", 70));
+        assert_eq!(a.states["working"], default_state("working"));
+        assert_eq!(a.states["idle"], default_state("idle"));
     }
 }
