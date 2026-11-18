@@ -18,6 +18,7 @@ hn-engine = { path = "crates/engine" }
 
 [profile.release]
 opt-level = "s"
-lto = true
-codegen-units = 1
+# Thin LTO and parallel codegen: release builds take a fraction of the time of full LTO with
+# one codegen unit, for a slightly larger binary.
+lto = "thin"
 strip = true
