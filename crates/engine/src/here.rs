@@ -33,10 +33,9 @@ impl Default for Here {
 
 impl Here {
     pub fn new() -> Self {
-        let mut puck = SimPuck::with_fw2_defaults("app");
-        // A preview here lasts exactly as long as the real state would (no 10 s cap).
-        puck.machine.preview_cap = None;
-        Self { puck }
+        Self {
+            puck: SimPuck::with_fw2_defaults("app"),
+        }
     }
 
     /// Takes these settings (`key → value`, as on a puck); bad ones are skipped.
@@ -139,11 +138,11 @@ mod tests {
     fn previews_flashes_and_clears_end_on_time() {
         let mut h = Here::new();
         h.configure(&Alerts::default().computer_settings());
-        // A preview shows at once and ends after 10 s.
+        // A preview of a state with no limit shows at once and ends after 60 s (D-060).
         h.handle("TEST needs", 0);
         assert_eq!(h.shown_line(1), "test:needs");
-        assert_eq!(h.shown_line(9_999), "test:needs");
-        assert_eq!(h.shown_line(10_000), "idle");
+        assert_eq!(h.shown_line(59_999), "test:needs");
+        assert_eq!(h.shown_line(60_000), "idle");
         // A real state takes over a preview at once.
         h.handle("TEST done", 20_000);
         h.handle("SNAP 30 0000000a:needs", 20_100);
