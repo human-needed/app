@@ -25,6 +25,9 @@ All notable changes to the HumanNeeded app. The format follows
   longer lasts about 15 s).
 - Dropdowns in the panel no longer close while you choose.
 - A preview on this computer lasts exactly the duration you set, like the real alert.
+- The screen-edge glow's animations (pulse, breathe, spin and the others) now play; before,
+  the glow only faded in and out. The glow now shows in screenshots and screen shares (hiding
+  it from capture is what stopped the animations on Windows).
 
 ## [0.9.0-beta.6] - 2026-11-17
 

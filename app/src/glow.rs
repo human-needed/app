@@ -8,7 +8,9 @@
 //!
 //! One borderless, transparent, always-on-top window per monitor (or only the main one),
 //! covering it. It never takes focus (not focusable, shown without activating) and never takes
-//! clicks (cursor events pass through), and it's left out of screenshots and screen shares. The
+//! clicks (cursor events pass through). It is not hidden from screen capture: on Windows,
+//! excluding a WebView2 window from capture (`SetWindowDisplayAffinity`) stops its animations
+//! from reaching the screen (only fades showed; 0.9.0-beta.7 to beta.11). The
 //! page (`glow.html`) only draws the edges; with nothing to show it draws nothing and runs no
 //! animation. Options (Settings → Screen edges): which screens, thickness, and skipping a
 //! monitor while a full-screen app is in front there (Windows). The tray menu's
@@ -335,11 +337,7 @@ fn make(app: &AppHandle, i: usize, (x, y, w, h): Rect) -> tauri::Result<String> 
         .visible_on_all_workspaces(true)
         .focused(false)
         .focusable(false)
-        // Not in screenshots, recordings or screen shares: the glow is for the person at the desk.
-        // (Debug builds: HN_GLOW_CAPTURE=1 lets tests sample it from the screen.)
-        .content_protected(
-            !(cfg!(debug_assertions) && std::env::var_os("HN_GLOW_CAPTURE").is_some()),
-        )
+        // Not content-protected: that stops the animations on screen (see the module docs).
         .visible(false)
         .build()?;
     win.set_position(PhysicalPosition::new(x, y))?;
