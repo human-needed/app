@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/sim", "crates/engine", "crates/cli", "app"]
 
 [workspace.package]
-version = "0.9.0-beta.15"
+version = "0.9.0-beta.16"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/human-needed/app"
