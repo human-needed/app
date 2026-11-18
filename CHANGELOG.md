@@ -31,6 +31,9 @@ All notable changes to the HumanNeeded app. The format follows
 - The glow animates even when Windows' "Animation effects" setting is off.
 - Every light animation now takes exactly 1 second and repeats, so it finishes a whole cycle
   at the end of any duration you pick.
+- A duration is now the light effect alone: the light fades in for 250 ms, runs that many
+  seconds, then fades out for 250 ms.
+- New 1 second and 2 second durations for the screen edges and the Puck.
 
 ## [0.9.0-beta.6] - 2026-11-17
 

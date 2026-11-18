@@ -33,9 +33,10 @@ impl Default for Here {
 
 impl Here {
     pub fn new() -> Self {
-        Self {
-            puck: SimPuck::with_fw2_defaults("app"),
-        }
+        let mut puck = SimPuck::with_fw2_defaults("app");
+        // The glow fades in first: a state's duration is its light effect alone.
+        puck.machine.lead_ms = hn_sim::machine::LIGHT_FADE_MS;
+        Self { puck }
     }
 
     /// Takes these settings (`key → value`, as on a puck); bad ones are skipped.
@@ -152,14 +153,14 @@ mod tests {
         h.handle("TEST done", 20_000);
         h.handle("SNAP 30 0000000a:needs", 20_100);
         assert_eq!(h.shown_line(20_100), "needs");
-        // Done shows for its duration (10 s by default), over needs.
+        // Done shows for its fade-in and duration (10 s by default), over needs.
         h.handle("FLASH done", 21_000);
         assert_eq!(h.shown_line(21_000), "done");
-        assert_eq!(h.shown_line(30_999), "done");
-        assert_eq!(h.shown_line(31_000), "needs");
+        assert_eq!(h.shown_line(31_249), "done");
+        assert_eq!(h.shown_line(31_250), "needs");
         // The session ends (empty snapshot): cleared at once.
-        h.handle("SNAP 30", 31_100);
-        assert_eq!(h.shown_line(31_100), "idle");
+        h.handle("SNAP 30", 31_300);
+        assert_eq!(h.shown_line(31_300), "idle");
         // Nothing renews the lease (the app stopped): cleared after 30 s.
         h.handle("SNAP 30 0000000b:working", 40_000);
         assert_eq!(h.shown_line(69_999), "working");

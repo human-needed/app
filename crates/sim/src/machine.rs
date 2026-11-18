@@ -48,6 +48,10 @@ impl St {
     }
 }
 
+/// A light fades in for this long before its effect starts, and fades out for this long after
+/// it ends. The user's duration is the effect alone: `3 s` = fade in, 3 full cycles, fade out.
+pub const LIGHT_FADE_MS: u64 = 250;
+
 /// Seconds each state shows for (0 = as long as it lasts; `done` is at least 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Durations {
@@ -98,6 +102,9 @@ pub struct Machine {
     /// Longest preview (ms): `None` = the state's own duration (hn-usb/2 1.3); older
     /// firmware's 10 s is `Some(TEST_MAX_MS)`.
     pub preview_cap: Option<u64>,
+    /// Added to every limited duration: the fade-in before the effect starts
+    /// ([`LIGHT_FADE_MS`] on outputs that fade; the fade-out follows the state's end).
+    pub lead_ms: u64,
 }
 
 impl Machine {
@@ -109,9 +116,17 @@ impl Machine {
         }
     }
 
+    /// How long a state with a limit stays shown: its fade-in, then its duration.
+    fn shown_ms(&self, st: St) -> u64 {
+        match self.durations.of(st) as u64 {
+            0 => 0,
+            d => self.lead_ms + d * 1000,
+        }
+    }
+
     fn within(&self, st: St, since: u64, now: u64) -> bool {
-        let d = self.durations.of(st) as u64;
-        d == 0 || now.saturating_sub(since) < d * 1000
+        let d = self.shown_ms(st);
+        d == 0 || now.saturating_sub(since) < d
     }
 
     /// What's shown without the `TEST` preview.
@@ -203,7 +218,7 @@ impl Machine {
     pub fn flash_done(&mut self, now: u64) -> Events {
         self.done_on = true;
         self.done_since = now;
-        self.done_end = now + self.durations.of(St::Done) as u64 * 1000;
+        self.done_end = now + self.shown_ms(St::Done);
         Events {
             test_ended: self.check_test(now),
             ..Default::default()
@@ -213,7 +228,7 @@ impl Machine {
     /// `TEST <state>`: a preview for the state's duration (at most 60 s for a state with no
     /// limit), and at most [`Machine::preview_cap`].
     pub fn start_test(&mut self, st: St, now: u64) {
-        let d = match self.durations.of(st) as u64 * 1000 {
+        let d = match self.shown_ms(st) {
             0 => UNTIL_CLEARED_PREVIEW_MS,
             d => d,
         };
@@ -270,9 +285,9 @@ impl Machine {
             (self.needs_on, St::Needs, self.needs_since),
             (self.working_on, St::Working, self.working_since),
         ] {
-            let d = self.durations.of(st) as u64;
-            if on && d > 0 && since + d * 1000 > now {
-                t.push(since + d * 1000);
+            let d = self.shown_ms(st);
+            if on && d > 0 && since + d > now {
+                t.push(since + d);
             }
         }
         t.into_iter().filter(|&x| x > now).min()
@@ -390,6 +405,27 @@ mod tests {
             m.apply_snap(vec![e("0000000a", SnapState::Needs)], 30, 30_001)
                 .needs_sound
         );
+    }
+
+    #[test]
+    fn the_fade_in_comes_on_top_of_the_duration() {
+        let mut m = Machine::new(d(3, 2, 0));
+        m.lead_ms = LIGHT_FADE_MS;
+        m.start_test(St::Needs, 0);
+        assert_eq!(m.next_change(0), Some(3_250));
+        m.tick(3_250);
+        m.flash_done(4_000);
+        assert_eq!(m.next_change(4_000), Some(6_250));
+        m.tick(6_250);
+        m.apply_snap(vec![e("0000000a", SnapState::Needs)], 30, 7_000);
+        assert_eq!(m.next_change(7_000), Some(10_250));
+        assert_eq!(m.base(10_249), St::Needs);
+        assert_eq!(m.base(10_250), St::Idle);
+        // No limit: nothing to add; a preview of it still ends after 60 s.
+        let mut m = Machine::new(d(0, 2, 0));
+        m.lead_ms = LIGHT_FADE_MS;
+        m.start_test(St::Working, 0);
+        assert_eq!(m.next_change(0), Some(60_000));
     }
 
     #[test]

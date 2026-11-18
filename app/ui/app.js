@@ -21,7 +21,7 @@ const LIGHTS = [['solid', 'Solid'], ['breathe', 'Breathe'], ['pulse', 'Pulse'], 
 const SOUNDS = [['ding', 'Ding'], ['chime', 'Chime'], ['rising', 'Rising'], ['arpeggio', 'Arpeggio'], ['bell', 'Bell'], ['beeps', 'Beeps'], ['bloop', 'Bloop'],
   ['bright', 'Bright (melody)'], ['clock', 'Clock (melody)'], ['doorbell', 'Doorbell (melody)'], ['fanfare', 'Fanfare (melody)'], ['ripple', 'Ripple (melody)'],
   ['call', 'Call (melody)'], ['lullaby', 'Lullaby (melody)'], ['harp', 'Harp (melody)']];
-const DURATIONS = [[3, '3 seconds'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
+const DURATIONS = [[1, '1 second'], [2, '2 seconds'], [3, '3 seconds'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
 const UNTIL = { needs: 'Until you answer', working: 'While it works', idle: 'Always', done: '' };
 const SWATCHES = ['#ffa62b', '#ff4d4d', '#ff5fb0', '#a26bff', '#3366ff', '#2ec4d6', '#22e04a', '#ffd2a0', '#ffffff'];
 // The agents listed, in order. Cowork is the cloud link (claude-cloud).

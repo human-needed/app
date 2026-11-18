@@ -34,7 +34,7 @@ pub const SOUNDS: [&str; 15] = [
     "fanfare", "ripple", "call", "lullaby", "harp",
 ];
 /// How long a light shows, in seconds (0 = as long as the state lasts; not for `done`).
-pub const DURATIONS: [u32; 8] = [0, 3, 5, 10, 30, 60, 300, 600];
+pub const DURATIONS: [u32; 10] = [0, 1, 2, 3, 5, 10, 30, 60, 300, 600];
 
 /// A light: on the screen edges or on the puck.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

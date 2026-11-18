@@ -396,9 +396,11 @@ pub fn schema() -> Value {
         ],
     );
     let duration = opts(
-        &["0", "3", "5", "10", "30", "60", "300", "600"],
+        &["0", "1", "2", "3", "5", "10", "30", "60", "300", "600"],
         &[
             "As long as the state lasts",
+            "1 second",
+            "2 seconds",
             "3 seconds",
             "5 seconds",
             "10 seconds",
