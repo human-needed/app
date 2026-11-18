@@ -24,6 +24,7 @@ All notable changes to the HumanNeeded app. The format follows
 - The screen-edge glow keeps each state's duration exactly, like the puck (a 3 s preview no
   longer lasts about 15 s).
 - Dropdowns in the panel no longer close while you choose.
+- A preview on this computer lasts exactly the duration you set, like the real alert.
 
 ## [0.9.0-beta.6] - 2026-11-17
 
