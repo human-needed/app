@@ -44,6 +44,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 }
 @keyframes spin { to { transform: rotate(1turn); } }
 
-@media (prefers-reduced-motion: reduce) {
-  #c { animation: none !important; }
-}
+/* No prefers-reduced-motion override: the light is the alert the user chose (as on the puck).
+   Windows reports reduced motion whenever "Animation effects" is off, which made every light
+   look solid while only the fade showed. */
