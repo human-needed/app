@@ -3,7 +3,8 @@
    opacity and transform animate, so the compositor does the work; with nothing to show the
    layer is fully transparent and nothing animates. Every light is a 1 s cycle, like the puck's
    (firmware leds.cpp). A state fades in for 250 ms holding the first frame, runs its effect for
-   its duration (whole seconds, so whole cycles), then fades out for 250 ms holding the last. */
+   its duration (whole seconds, so whole cycles), then fades out for 250 ms holding the last.
+   Every cycle that varies brightness starts and ends at full, so the fades run to and from full. */
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 #g {
   /* 250 ms fades, as the puck (LIGHT_FADE_MS). */
@@ -34,17 +35,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 /* Ending: hold the last frame while the glow fades out. */
 #g.hold #c { animation-play-state: paused; }
 
-@keyframes breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-@keyframes pulse { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
-@keyframes blink { 0%, 10% { opacity: 0; } 16% { opacity: 1; } 60% { opacity: 1; } 66% { opacity: 0; } 100% { opacity: 0; } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes blink { 0%, 22% { opacity: 1; } 28%, 72% { opacity: 0; } 78%, 100% { opacity: 1; } }
+/* Two quick beats, then a rest: the first beat spans the join between cycles. */
 @keyframes heartbeat {
-  0%, 15% { opacity: .15; } 18.3% { opacity: 1; } 25% { opacity: 1; } 28.3% { opacity: .15; }
-  36% { opacity: .15; } 39.3% { opacity: 1; } 46% { opacity: 1; } 49.3% { opacity: .15; } 100% { opacity: .15; }
+  0%, 3.3% { opacity: 1; } 6.6%, 14.4% { opacity: .15; } 17.7%, 24.3% { opacity: 1; }
+  27.6%, 93.4% { opacity: .15; } 96.7%, 100% { opacity: 1; }
 }
 @keyframes flicker {
-  0% { opacity: .8; } 9% { opacity: .62; } 17% { opacity: .95; } 26% { opacity: .7; } 35% { opacity: .88; }
+  0% { opacity: 1; } 9% { opacity: .62; } 17% { opacity: .95; } 26% { opacity: .7; } 35% { opacity: .88; }
   44% { opacity: .55; } 53% { opacity: .9; } 62% { opacity: .75; } 71% { opacity: 1; } 80% { opacity: .66; }
-  90% { opacity: .85; } 100% { opacity: .8; }
+  90% { opacity: .85; } 100% { opacity: 1; }
 }
 @keyframes spin { to { transform: rotate(1turn); } }
 
