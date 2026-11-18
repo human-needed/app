@@ -153,6 +153,29 @@ pub fn spec_of(status: &Value, settings: &Value, elapsed: f32, thickness: &str) 
     }
 }
 
+/// What the glow shows, ten times a second: from this computer's state machine (previews and
+/// real events take the same path) and the alert settings. No I/O, and a window only hears
+/// about a change, so it costs next to nothing; a state shows within 100 ms and ends on time
+/// (preview, Done, duration, session end).
+pub fn run(app: &AppHandle, engine: hn_engine::Engine) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            let (shown, quiet) = engine.computer_now();
+            let settings = serde_json::to_value(engine.alerts_get().computer_settings())
+                .unwrap_or(Value::Null);
+            let status =
+                serde_json::json!({"output": {"shown": shown}, "quiet": {"active": quiet}});
+            let elapsed = elapsed(&app, &status);
+            let thickness = options(&app).thickness;
+            show(&app, spec_of(&status, &settings, elapsed, &thickness));
+        }
+    });
+}
+
 /// Loads the options. The windows are made by the tray loop's first [`sync`], off the main
 /// thread, so setup never waits on window creation.
 pub fn init(app: &AppHandle) {
@@ -343,7 +366,10 @@ fn make(app: &AppHandle, i: usize, (x, y, w, h): Rect) -> tauri::Result<String> 
         .focused(false)
         .focusable(false)
         // Not in screenshots, recordings or screen shares: the glow is for the person at the desk.
-        .content_protected(true)
+        // (Debug builds: HN_GLOW_CAPTURE=1 lets tests sample it from the screen.)
+        .content_protected(
+            !(cfg!(debug_assertions) && std::env::var_os("HN_GLOW_CAPTURE").is_some()),
+        )
         .visible(false)
         .build()?;
     win.set_position(PhysicalPosition::new(x, y))?;
