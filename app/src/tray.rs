@@ -230,7 +230,7 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                 let _ = tray.set_tooltip(Some(&now.1));
                 last = Some(now);
             }
-            // Screen-edge glow (D-059): windows for the current monitors, then what to show.
+            // Screen-edge glow windows for the current monitors (what they show: glow::run).
             if screens_at.is_none_or(|t| t.elapsed().as_secs() >= 5) {
                 let first = screens_at.is_none();
                 crate::glow::sync(&app);
@@ -240,12 +240,6 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                     let _ = app.run_on_main_thread(|| hn_engine::log!("ui: ready"));
                 }
             }
-            let o = crate::glow::options(&app);
-            let elapsed = crate::glow::elapsed(&app, &status);
-            crate::glow::show(
-                &app,
-                crate::glow::spec_of(&status, &colours, elapsed, &o.thickness),
-            );
             let _ = glow.set_checked(crate::glow::enabled(&app));
             let _ = app.emit("changed", ());
             // Wake on any change, and at least every 5 s (puck STATUS, mute timers).

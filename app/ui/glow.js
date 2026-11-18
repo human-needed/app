@@ -5,17 +5,27 @@
   const LIGHTS = ['solid', 'breathe', 'pulse', 'blink', 'heartbeat', 'flicker', 'spin'];
   let off = null;
 
+  let shown = '';
+
   function apply(s) {
     clearTimeout(off);
     if (!s || !s.state) {
+      shown = '';
       g.style.opacity = '0';
       // Stop the animation once faded out, so an idle screen costs nothing.
-      off = setTimeout(() => { g.className = ''; }, 700);
+      off = setTimeout(() => { g.className = ''; }, 500);
       return;
     }
     g.style.setProperty('--c', /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#ffffff');
     const light = LIGHTS.includes(s.light) ? s.light : 'solid';
-    if (g.className !== light) g.className = light;
+    // Like the puck, an animation starts from the beginning when the state changes.
+    const key = `${s.state}/${light}`;
+    if (key !== shown) {
+      shown = key;
+      g.className = '';
+      void g.offsetWidth;
+      g.className = light;
+    }
     g.dataset.t = ['thin', 'wide'].includes(s.thickness) ? s.thickness : 'mid';
     g.style.opacity = String(Math.max(0, Math.min(1, Number(s.level) || 0)));
   }
