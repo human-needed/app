@@ -2,7 +2,7 @@
 //! Tray / menu-bar icon (D-055): a ring in the colour of the state shown (on the puck, or on this
 //! computer when there's no puck, D-059), with a small dot when sounds are muted (grey) or
 //! something needs fixing (red). Left click opens the panel; right click: Screen edge glow,
-//! Mute for 1 hour, Quit. The same loop drives the screen-edge glow.
+//! Mute for 1 hour, Quit.
 
 use hn_engine::Engine;
 use serde_json::Value;
@@ -208,7 +208,6 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
         let mut colours = Value::Null;
         let mut colours_at: Option<std::time::Instant> = None;
         let mut was_output = String::new();
-        let mut screens_at: Option<std::time::Instant> = None;
         loop {
             let status = engine.status().await;
             let output = status["output"]["device"]
@@ -229,16 +228,6 @@ pub fn build(app: &AppHandle, engine: Engine) -> tauri::Result<()> {
                 let _ = tray.set_icon(Some(icon(&now.0)));
                 let _ = tray.set_tooltip(Some(&now.1));
                 last = Some(now);
-            }
-            // Screen-edge glow windows for the current monitors (what they show: glow::run).
-            if screens_at.is_none_or(|t| t.elapsed().as_secs() >= 5) {
-                let first = screens_at.is_none();
-                crate::glow::sync(&app);
-                screens_at = Some(std::time::Instant::now());
-                if first {
-                    // Proof the main thread runs after startup (the CI smoke run waits for it).
-                    let _ = app.run_on_main_thread(|| hn_engine::log!("ui: ready"));
-                }
             }
             let _ = glow.set_checked(crate::glow::enabled(&app));
             let _ = app.emit("changed", ());

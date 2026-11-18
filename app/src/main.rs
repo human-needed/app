@@ -266,7 +266,7 @@ fn main() {
             updater::start(app.handle());
             panel::init(app.handle())?;
             glow::init(app.handle());
-            glow::run(app.handle(), engine.clone());
+            glow::start(app.handle(), &engine);
             sound::start(&engine);
             tray::build(app.handle(), engine.clone())?;
             // Started by hand (not at sign-in): show the panel once, so people see where it is.

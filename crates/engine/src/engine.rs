@@ -92,6 +92,10 @@ pub struct Engine {
     http: Arc<Mutex<crate::http::HttpStatus>>,
     cloud: Option<crate::cloud::Cloud>,
     sounds: Arc<tokio::sync::broadcast::Sender<here::Sound>>,
+    /// What this computer's screen edges show, updated the moment it changes.
+    screen: Arc<watch::Sender<Option<crate::output::Screen>>>,
+    /// Wakes the loop to re-plan this computer's next timed change.
+    replan: Arc<tokio::sync::Notify>,
 }
 
 /// Commands that only mean something to a real puck: never answered by "this computer".
@@ -156,7 +160,10 @@ impl Engine {
             http: Arc::new(Mutex::new(Default::default())),
             cloud,
             sounds: Arc::new(tokio::sync::broadcast::channel(16).0),
+            screen: Arc::new(watch::channel(None).0),
+            replan: Arc::new(tokio::sync::Notify::new()),
         };
+        engine.publish();
         if let Some(port) = engine.config.http_port {
             let changes = engine.changes.clone();
             crate::http::serve(port, in_tx, engine.http.clone(), move || {
@@ -182,6 +189,41 @@ impl Engine {
         self.sounds.subscribe()
     }
 
+    /// What this computer's screen edges show; changes the moment the state machine's shown
+    /// state does (events, previews, durations running out, settings).
+    pub fn screen(&self) -> watch::Receiver<Option<crate::output::Screen>> {
+        self.screen.subscribe()
+    }
+
+    /// Works out this computer's look from its state machine and publishes it if it changed.
+    /// Every path that can change it (events, previews, timers, settings, quiet hours) ends here.
+    fn publish(&self) {
+        let look = {
+            let mut s = self.shared.lock().unwrap();
+            let (st, preview) = s.here.shown(now_ms());
+            let quiet = s.quiet.status().active;
+            crate::output::screen(&s.alerts, &st, preview, quiet)
+        };
+        self.screen.send_if_modified(|cur| {
+            if *cur == look {
+                return false;
+            }
+            match &look {
+                Some(l) => log!(
+                    "screen: {} {} {}{}",
+                    l.state,
+                    l.light,
+                    l.color,
+                    if l.preview { " (preview)" } else { "" }
+                ),
+                None => log!("screen: off"),
+            }
+            *cur = look;
+            true
+        });
+        self.replan.notify_one();
+    }
+
     /// Runs a command on "this computer"; its sounds go to [`Engine::sounds`].
     fn here(&self, line: &str) -> Result<String, String> {
         let (reply, sounds) = self.shared.lock().unwrap().here.handle(line, now_ms());
@@ -189,6 +231,7 @@ impl Engine {
             log!("sound {} {} on this computer", s.state, s.sound);
             let _ = self.sounds.send(s);
         }
+        self.publish();
         match reply.strip_prefix("ERR ") {
             Some(e) => Err(e.to_string()),
             None => Ok(reply),
@@ -207,7 +250,15 @@ impl Engine {
         let mut tick = tokio::time::interval(Duration::from_millis(1000));
         let mut ticks: u64 = 0;
         loop {
+            // This computer's next timed change (a preview or a duration ending): wake right then.
+            let next = self.shared.lock().unwrap().here.next_change(now_ms());
+            let wait = next.map(|t| Duration::from_millis(t.saturating_sub(now_ms())));
             tokio::select! {
+                _ = async { tokio::time::sleep(wait.unwrap_or_default()).await }, if wait.is_some() => {
+                    self.publish();
+                    self.changed();
+                }
+                _ = self.replan.notified() => {}
                 Some(inc) = in_rx.recv() => self.incoming(inc),
                 Some(ev) = ev_rx.recv() => {
                     let _ = self.link_events.send(ev.clone());
@@ -377,7 +428,7 @@ impl Engine {
     /// glow reads it ten times a second, for previews and real events alike.
     pub fn computer_now(&self) -> (String, bool) {
         let mut s = self.shared.lock().unwrap();
-        let shown = s.here.shown(now_ms());
+        let shown = s.here.shown_line(now_ms());
         (shown, s.quiet.status().active)
     }
 
@@ -403,6 +454,7 @@ impl Engine {
             s.here.configure(&a.computer_settings());
             s.alerts = a;
         }
+        self.publish();
         self.sync_puck().await;
         self.changed();
         Ok(())
@@ -563,6 +615,7 @@ impl Engine {
     pub async fn quiet_set(&self, q: quiet::Settings) -> Result<(), String> {
         self.shared.lock().unwrap().quiet.set(q)?;
         self.quiet_tick().await;
+        self.publish();
         self.changed();
         Ok(())
     }
@@ -597,6 +650,7 @@ impl Engine {
                 }
                 self.shared.lock().unwrap().quiet.entered(b, dim);
                 log!("quiet hours: on (puck brightness {b} -> {dim}, muted {mute_min} min)");
+                self.publish();
                 self.changed();
             }
             quiet::Action::Leave { restore } => {
@@ -625,6 +679,7 @@ impl Engine {
                 }
                 self.shared.lock().unwrap().quiet.left();
                 log!("quiet hours: off");
+                self.publish();
                 self.changed();
             }
         }

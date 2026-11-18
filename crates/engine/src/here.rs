@@ -49,7 +49,7 @@ impl Here {
 
     /// What this computer shows at `now` (`needs`, `test:done`, `idle`, …): a preview, a Done
     /// flash and every lease end are worked out here, so callers just ask.
-    pub fn shown(&mut self, now: u64) -> String {
+    pub fn shown_line(&mut self, now: u64) -> String {
         self.puck.shown(now)
     }
 
@@ -65,6 +65,20 @@ impl Here {
             })
             .collect();
         (reply, sounds)
+    }
+
+    /// What's shown now (`needs`, `done`, `working`, `idle`) and whether it's a preview.
+    pub fn shown(&mut self, now: u64) -> (String, bool) {
+        let s = self.puck.shown(now);
+        match s.strip_prefix("test:") {
+            Some(st) => (st.to_string(), true),
+            None => (s, false),
+        }
+    }
+
+    /// When what's shown may change by itself next (ms), if ever.
+    pub fn next_change(&mut self, now: u64) -> Option<u64> {
+        self.puck.next_change(now)
     }
 
     fn level(&self, key: &str) -> f32 {
@@ -126,25 +140,25 @@ mod tests {
         h.configure(&Alerts::default().computer_settings());
         // A preview shows at once and ends after 10 s.
         h.handle("TEST needs", 0);
-        assert_eq!(h.shown(1), "test:needs");
-        assert_eq!(h.shown(9_999), "test:needs");
-        assert_eq!(h.shown(10_000), "idle");
+        assert_eq!(h.shown_line(1), "test:needs");
+        assert_eq!(h.shown_line(9_999), "test:needs");
+        assert_eq!(h.shown_line(10_000), "idle");
         // A real state takes over a preview at once.
         h.handle("TEST done", 20_000);
         h.handle("SNAP 30 0000000a:needs", 20_100);
-        assert_eq!(h.shown(20_100), "needs");
+        assert_eq!(h.shown_line(20_100), "needs");
         // Done shows for its duration (10 s by default), over needs.
         h.handle("FLASH done", 21_000);
-        assert_eq!(h.shown(21_000), "done");
-        assert_eq!(h.shown(30_999), "done");
-        assert_eq!(h.shown(31_000), "needs");
+        assert_eq!(h.shown_line(21_000), "done");
+        assert_eq!(h.shown_line(30_999), "done");
+        assert_eq!(h.shown_line(31_000), "needs");
         // The session ends (empty snapshot): cleared at once.
         h.handle("SNAP 30", 31_100);
-        assert_eq!(h.shown(31_100), "idle");
+        assert_eq!(h.shown_line(31_100), "idle");
         // Nothing renews the lease (the app stopped): cleared after 30 s.
         h.handle("SNAP 30 0000000b:working", 40_000);
-        assert_eq!(h.shown(69_999), "working");
-        assert_eq!(h.shown(70_000), "idle");
+        assert_eq!(h.shown_line(69_999), "working");
+        assert_eq!(h.shown_line(70_000), "idle");
     }
 
     #[test]
