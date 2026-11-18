@@ -23,7 +23,7 @@ back when it's your turn.
 ## Features
 
 - 🟠 **Screen-edge glow** on every monitor, in the state's colour and animation. It never takes
-  focus or clicks, and it doesn't show up in screen shares.
+  focus or clicks.
 - 🔔 **Chimes** for "needs you" and "done", with 15 sounds and melodies to choose from.
 - 🤖 **Every agent, one signal:** Claude Code, Codex, Cursor and Cowork / Claude on the web.
   "Needs you" always wins.
@@ -157,7 +157,8 @@ No. The app works on its own with the screen-edge glow and chimes. The puck is a
 <details>
 <summary><b>Will the glow get in my way?</b></summary>
 
-It never takes focus or clicks, and it isn't captured in screenshots or screen shares.
+It never takes focus or clicks. It does show in screenshots and screen shares; pause it from
+the tray menu before you share your screen.
 "Working" glows softly and "Idle" never glows. Turn it off any time from the tray menu.
 </details>
 
