@@ -6,10 +6,18 @@
 # (the website links to releases/latest/download/<stable name>) with SHA-256 checksums. Run by hand (workflow_dispatch) it only builds them and keeps them as run artifacts.
 name: release
 
+# A push to main also builds (no release), only so the Rust cache is warm: a tag can read
+# caches made on main but not those of earlier tags, so tag builds were always cold.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  # A newer push to main replaces an unfinished warm-up build; tag builds always finish.
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -57,11 +65,19 @@ jobs:
           targets: ${{ matrix.rust_targets }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: release-${{ matrix.name }}
+          # Same key on main and tags, so a tag build starts from main's cache.
+          shared-key: release-${{ matrix.name }}
+          cache-on-failure: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # The installers are only needed for a tag or a hand-run build.
+      - name: Warm-up build only (main)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: cargo build --release -p humanneeded ${{ matrix.name == 'macos' && '--target aarch64-apple-darwin --target x86_64-apple-darwin' || '' }}
       - name: Build installer
+        if: github.ref != 'refs/heads/main'
         working-directory: app
         shell: bash
         env:
@@ -73,6 +89,7 @@ jobs:
           fi
           npx --yes "$TAURI_CLI" build ${{ matrix.args }}
       - name: Collect
+        if: github.ref != 'refs/heads/main'
         shell: bash
         run: |
           mkdir dist
@@ -88,6 +105,7 @@ jobs:
           cp "upd/${{ matrix.upd_stable }}.sig" dist/
           ls -l dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.ref != 'refs/heads/main'
         with:
           name: installer-${{ matrix.name }}
           path: dist/*

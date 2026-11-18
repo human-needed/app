@@ -47,6 +47,12 @@ impl Here {
         }
     }
 
+    /// What this computer shows at `now` (`needs`, `test:done`, `idle`, …): a preview, a Done
+    /// flash and every lease end are worked out here, so callers just ask.
+    pub fn shown_line(&mut self, now: u64) -> String {
+        self.puck.shown(now)
+    }
+
     /// Runs one `hn-usb/2` command. Returns the reply line and the sounds it started.
     pub fn handle(&mut self, line: &str, now: u64) -> (String, Vec<Sound>) {
         let reply = self.puck.handle(line, now);
@@ -126,6 +132,33 @@ mod tests {
         assert!((s[0].gain - 0.4).abs() < 1e-6);
         h.handle("MUTE on", 2);
         assert!(h.handle("SNAP 30 0000000b:needs", 3).1.is_empty());
+    }
+
+    #[test]
+    fn previews_flashes_and_clears_end_on_time() {
+        let mut h = Here::new();
+        h.configure(&Alerts::default().computer_settings());
+        // A preview shows at once and ends after 10 s.
+        h.handle("TEST needs", 0);
+        assert_eq!(h.shown_line(1), "test:needs");
+        assert_eq!(h.shown_line(9_999), "test:needs");
+        assert_eq!(h.shown_line(10_000), "idle");
+        // A real state takes over a preview at once.
+        h.handle("TEST done", 20_000);
+        h.handle("SNAP 30 0000000a:needs", 20_100);
+        assert_eq!(h.shown_line(20_100), "needs");
+        // Done shows for its duration (10 s by default), over needs.
+        h.handle("FLASH done", 21_000);
+        assert_eq!(h.shown_line(21_000), "done");
+        assert_eq!(h.shown_line(30_999), "done");
+        assert_eq!(h.shown_line(31_000), "needs");
+        // The session ends (empty snapshot): cleared at once.
+        h.handle("SNAP 30", 31_100);
+        assert_eq!(h.shown_line(31_100), "idle");
+        // Nothing renews the lease (the app stopped): cleared after 30 s.
+        h.handle("SNAP 30 0000000b:working", 40_000);
+        assert_eq!(h.shown_line(69_999), "working");
+        assert_eq!(h.shown_line(70_000), "idle");
     }
 
     #[test]
