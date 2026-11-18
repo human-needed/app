@@ -7,9 +7,9 @@
 //! - each state's `duration` runs from when that state started (0 = as long as it lasts); a new
 //!   id entering `needs` starts `needs` again; once it runs out, the next state shows;
 //! - `TEST <state>` previews for that state's duration and ends at once when what would be
-//!   shown under it changes. The puck caps a preview at 10 s (hn-usb/2); the app's own output
-//!   doesn't ([`Machine::preview_cap`]), so its preview lasts exactly as long as the real
-//!   state would. A state with no limit previews for 10 s;
+//!   shown under it changes, so it lasts exactly as long as the real state would (hn-usb/2
+//!   1.3, D-060). A state with no limit ("until cleared") previews for at most 60 s. Firmware
+//!   before 1.3 capped every preview at 10 s ([`Machine::preview_cap`]);
 //! - the lease running out clears the table.
 //!
 //! Time is passed in (ms). [`Machine::next_change`] says exactly when what's shown can change
@@ -17,8 +17,10 @@
 
 use hn_core::proto::SnapState;
 
-/// Longest `TEST` preview (firmware `TEST_MAX_MS`).
+/// Longest `TEST` preview on firmware before hn-usb/2 1.3 (its `TEST_MAX_MS`).
 pub const TEST_MAX_MS: u64 = 10_000;
+/// A preview of a state with no limit (duration 0) lasts at most this (hn-usb/2 1.3, D-060).
+pub const UNTIL_CLEARED_PREVIEW_MS: u64 = 60_000;
 
 /// The states, as the firmware orders them (a higher one wins).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,7 +93,8 @@ pub struct Machine {
     test: Option<(St, u64)>,
     test_base: Option<St>,
     pub durations: Durations,
-    /// Longest preview (ms): the firmware's 10 s, or `None` = the state's own duration.
+    /// Longest preview (ms): `None` = the state's own duration (hn-usb/2 1.3); older
+    /// firmware's 10 s is `Some(TEST_MAX_MS)`.
     pub preview_cap: Option<u64>,
 }
 
@@ -99,7 +102,7 @@ impl Machine {
     pub fn new(durations: Durations) -> Self {
         Self {
             durations,
-            preview_cap: Some(TEST_MAX_MS),
+            preview_cap: None,
             ..Default::default()
         }
     }
@@ -192,15 +195,14 @@ impl Machine {
         }
     }
 
-    /// `TEST <state>`: a preview for the state's duration (10 s for a state with no limit),
-    /// at most [`Machine::preview_cap`].
+    /// `TEST <state>`: a preview for the state's duration (at most 60 s for a state with no
+    /// limit), and at most [`Machine::preview_cap`].
     pub fn start_test(&mut self, st: St, now: u64) {
-        let d = self.durations.of(st) as u64 * 1000;
-        let ms = match (d, self.preview_cap) {
-            (0, _) => TEST_MAX_MS,
-            (d, Some(cap)) => d.min(cap),
-            (d, None) => d,
+        let d = match self.durations.of(st) as u64 * 1000 {
+            0 => UNTIL_CLEARED_PREVIEW_MS,
+            d => d,
         };
+        let ms = self.preview_cap.map_or(d, |cap| d.min(cap));
         self.test = Some((st, now + ms));
         self.test_base = Some(self.base(now));
     }
@@ -330,17 +332,19 @@ mod tests {
         assert_eq!(m.shown(2_999), (St::Needs, true));
         m.tick(3_000);
         assert_eq!(m.shown(3_000), (St::Idle, false));
-        // Duration 0 (as long as it lasts): capped at 10 s.
+        // Duration 0 (until cleared): at most 60 s.
         m.start_test(St::Working, 5_000);
-        assert_eq!(m.next_change(5_000), Some(15_000));
-        // Over 10 s: capped on the puck…
+        assert_eq!(m.next_change(5_000), Some(65_000));
+        // Over 10 s: the full duration (hn-usb/2 1.3).
         m.durations.done = 30;
-        m.start_test(St::Done, 20_000);
-        assert_eq!(m.next_change(20_000), Some(30_000));
-        // …but exactly the real duration on the computer.
-        m.preview_cap = None;
-        m.start_test(St::Done, 40_000);
-        assert_eq!(m.next_change(40_000), Some(70_000));
+        m.start_test(St::Done, 100_000);
+        assert_eq!(m.next_change(100_000), Some(130_000));
+        // Firmware before 1.3: everything capped at 10 s.
+        m.preview_cap = Some(TEST_MAX_MS);
+        m.start_test(St::Done, 200_000);
+        assert_eq!(m.next_change(200_000), Some(210_000));
+        m.start_test(St::Working, 300_000);
+        assert_eq!(m.next_change(300_000), Some(310_000));
     }
 
     #[test]

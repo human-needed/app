@@ -237,8 +237,7 @@ async fn screen_timing_is_exact_for_previews_and_events() {
         "{took:?}"
     );
 
-    // A preview of a state with no limit lasts the firmware's 10 s at most; a settings change
-    // shows at once.
+    // Done's preview lasts its own duration too.
     e.puck("TEST done").await.unwrap();
     let (look, _) = next_look(&mut rx).await;
     assert_eq!(look.map(|l| l.state), Some("done".into()));
