@@ -114,7 +114,7 @@ async fn previews_and_events_reach_the_computer_at_once() {
     assert_eq!(post(port, "/v1/event/claude/done").await, 204);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(e.computer_now().0, "done");
-    tokio::time::sleep(Duration::from_millis(3_100)).await;
+    tokio::time::sleep(Duration::from_millis(3_400)).await;
     assert_eq!(e.computer_now().0, "idle");
 }
 
@@ -219,7 +219,7 @@ async fn screen_timing_is_exact_for_previews_and_events() {
     let (look, took) = next_look(&mut rx).await;
     assert_eq!(look, None);
     assert!(
-        took >= Duration::from_millis(2_800) && took < Duration::from_millis(3_600),
+        took >= Duration::from_millis(3_150) && took < Duration::from_millis(3_600),
         "{took:?}"
     );
 

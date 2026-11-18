@@ -2,13 +2,12 @@
 /* Screen-edge glow (D-059). One layer, masked to a soft frame along the screen edges. Only
    opacity and transform animate, so the compositor does the work; with nothing to show the
    layer is fully transparent and nothing animates. Every light is a 1 s cycle, like the puck's
-   (firmware leds.cpp), started with the state: durations are whole seconds, so it always ends
-   on a complete cycle. Cycles start and end dim, so the short fade-in doesn't eat into the
-   first one and the last one runs out into the fade-out. */
+   (firmware leds.cpp). A state fades in for 250 ms holding the first frame, runs its effect for
+   its duration (whole seconds, so whole cycles), then fades out for 250 ms holding the last. */
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 #g {
-  /* 400 ms cross-fade between states, as the puck (FADE_MS). */
-  position: fixed; inset: 0; opacity: 0; transition: opacity .4s ease-in-out; pointer-events: none;
+  /* 250 ms fades, as the puck (LIGHT_FADE_MS). */
+  position: fixed; inset: 0; opacity: 0; transition: opacity .25s ease-in-out; pointer-events: none;
   --t: clamp(22px, 3.2vmin, 64px);
   --edge: linear-gradient(to bottom, #000, transparent var(--t)),
           linear-gradient(to top, #000, transparent var(--t)),
@@ -21,16 +20,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 #g[data-t="wide"] { --t: clamp(36px, 5.5vmin, 110px); }
 #c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
 
-.breathe #c { animation: breathe 1s ease-in-out var(--d, 0ms) infinite; }
-.pulse #c { animation: pulse 1s ease-in-out var(--d, 0ms) infinite; }
-.blink #c { animation: blink 1s linear var(--d, 0ms) infinite; }
-.heartbeat #c { animation: heartbeat 1s linear var(--d, 0ms) infinite; }
-.flicker #c { animation: flicker 1s linear var(--d, 0ms) infinite; }
+.breathe #c { animation: breathe 1s ease-in-out var(--d, 0ms) infinite both; }
+.pulse #c { animation: pulse 1s ease-in-out var(--d, 0ms) infinite both; }
+.blink #c { animation: blink 1s linear var(--d, 0ms) infinite both; }
+.heartbeat #c { animation: heartbeat 1s linear var(--d, 0ms) infinite both; }
+.flicker #c { animation: flicker 1s linear var(--d, 0ms) infinite both; }
 /* Spin: a comet runs round the edges once a second, as on the puck's ring. */
 .spin #c {
   inset: -60vmax; will-change: transform;
   background: conic-gradient(from 0deg, var(--c), color-mix(in srgb, var(--c) 12%, transparent) 4% 50%, var(--c) 100%);
-  animation: spin 1s linear var(--d, 0ms) infinite;
+  animation: spin 1s linear var(--d, 0ms) infinite both;
 }
 /* Ending: hold the last frame while the glow fades out. */
 #g.hold #c { animation-play-state: paused; }
