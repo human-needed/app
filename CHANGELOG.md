@@ -29,6 +29,8 @@ All notable changes to the HumanNeeded app. The format follows
   the glow only faded in and out. The glow now shows in screenshots and screen shares (hiding
   it from capture is what stopped the animations on Windows).
 - The glow animates even when Windows' "Animation effects" setting is off.
+- Every light animation now takes exactly 1 second and repeats, so it finishes a whole cycle
+  at the end of any duration you pick.
 
 ## [0.9.0-beta.6] - 2026-11-17
 

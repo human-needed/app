@@ -39,6 +39,8 @@ pub struct Spec {
     pub level: f32,
     /// `thin` | `mid` | `wide`.
     pub thickness: String,
+    /// When the state started (ms since the epoch): the animation is timed from here.
+    pub since: u64,
 }
 
 impl Spec {
@@ -51,6 +53,7 @@ impl Spec {
                 light: l.light.clone(),
                 level: l.level,
                 thickness: thickness.into(),
+                since: l.since,
             },
         }
     }

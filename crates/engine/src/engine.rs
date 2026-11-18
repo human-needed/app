@@ -200,9 +200,11 @@ impl Engine {
     fn publish(&self) {
         let look = {
             let mut s = self.shared.lock().unwrap();
-            let (st, preview) = s.here.shown(now_ms());
+            let now = now_ms();
+            let (st, preview) = s.here.shown(now);
+            let since = s.here.shown_since(now);
             let quiet = s.quiet.status().active;
-            crate::output::screen(&s.alerts, &st, preview, quiet)
+            crate::output::screen(&s.alerts, &st, preview, since, quiet)
         };
         self.screen.send_if_modified(|cur| {
             if *cur == look {

@@ -163,6 +163,12 @@ impl SimPuck {
         }
     }
 
+    /// When what's shown now started (ms; 0 for idle).
+    pub fn shown_since(&mut self, now: u64) -> u64 {
+        self.tick(now);
+        self.machine.shown_since(now)
+    }
+
     /// When what's shown may change by itself next (ms), if ever.
     pub fn next_change(&mut self, now: u64) -> Option<u64> {
         self.tick(now);

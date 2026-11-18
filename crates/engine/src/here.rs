@@ -76,6 +76,11 @@ impl Here {
         }
     }
 
+    /// When what's shown now started (ms since the epoch; 0 for idle).
+    pub fn shown_since(&mut self, now: u64) -> u64 {
+        self.puck.shown_since(now)
+    }
+
     /// When what's shown may change by itself next (ms), if ever.
     pub fn next_change(&mut self, now: u64) -> Option<u64> {
         self.puck.next_change(now)
