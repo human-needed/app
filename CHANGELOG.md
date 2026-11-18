@@ -20,6 +20,11 @@ All notable changes to the HumanNeeded app. The format follows
 - New README, contributing guide (with DCO sign-off), security policy, and issue and pull
   request templates.
 
+### Fixed
+- The screen-edge glow keeps each state's duration exactly, like the puck (a 3 s preview no
+  longer lasts about 15 s).
+- Dropdowns in the panel no longer close while you choose.
+
 ## [0.9.0-beta.6] - 2026-11-17
 
 ### Changed
