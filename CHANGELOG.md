@@ -36,6 +36,8 @@ All notable changes to the HumanNeeded app. The format follows
 - New 1 second and 2 second durations for the screen edges and the Puck.
 - Breathe, Blink, Heartbeat and Candle flicker now start and end each cycle at full
   brightness, so a light fades in to full and fades out from full.
+- When one state changes straight to another, the screen edges cross-fade in 250 ms, like the
+  Puck, instead of switching at once.
 
 ### Removed
 - The Pulse light. Anything set to Pulse now uses Breathe, which looked almost the same.
