@@ -4,7 +4,9 @@
    layer is fully transparent and nothing animates. Every light is a 1 s cycle, like the puck's
    (firmware leds.cpp). A state fades in for 250 ms holding the first frame, runs its effect for
    its duration (whole seconds, so whole cycles), then fades out for 250 ms holding the last.
-   Every cycle that varies brightness starts and ends at full, so the fades run to and from full. */
+   Every cycle that varies brightness starts and ends at full, so the fades run to and from full.
+   One layer (.l > .c) per state: on a change, the shown one holds its frame while the new one
+   fades in over it in 250 ms, as the puck cross-fades. */
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
 #g {
   /* 250 ms fades, as the puck (LIGHT_FADE_MS). */
@@ -19,20 +21,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 }
 #g[data-t="thin"] { --t: clamp(12px, 1.7vmin, 34px); }
 #g[data-t="wide"] { --t: clamp(36px, 5.5vmin, 110px); }
-#c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
+.l { position: absolute; inset: 0; transition: opacity .25s ease-in-out; }
+.c { position: absolute; inset: 0; background: var(--c, #fff); will-change: opacity; }
 
-.breathe #c { animation: breathe 1s ease-in-out var(--d, 0ms) infinite both; }
-.blink #c { animation: blink 1s linear var(--d, 0ms) infinite both; }
-.heartbeat #c { animation: heartbeat 1s linear var(--d, 0ms) infinite both; }
-.flicker #c { animation: flicker 1s linear var(--d, 0ms) infinite both; }
+.c.breathe { animation: breathe 1s ease-in-out var(--d, 0ms) infinite both; }
+.c.blink { animation: blink 1s linear var(--d, 0ms) infinite both; }
+.c.heartbeat { animation: heartbeat 1s linear var(--d, 0ms) infinite both; }
+.c.flicker { animation: flicker 1s linear var(--d, 0ms) infinite both; }
 /* Spin: a comet runs round the edges once a second, as on the puck's ring. */
-.spin #c {
+.c.spin {
   inset: -60vmax; will-change: transform;
   background: conic-gradient(from 0deg, var(--c), color-mix(in srgb, var(--c) 12%, transparent) 4% 50%, var(--c) 100%);
   animation: spin 1s linear var(--d, 0ms) infinite both;
 }
-/* Ending: hold the last frame while the glow fades out. */
-#g.hold #c { animation-play-state: paused; }
+/* Ending, or a new state fading in over this one: hold the last frame. */
+#g.hold .c, .l.hold .c { animation-play-state: paused; }
 
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes blink { 0%, 22% { opacity: 1; } 28%, 72% { opacity: 0; } 78%, 100% { opacity: 1; } }
