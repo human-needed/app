@@ -10,7 +10,7 @@
 //! the log, the web view's cache, and the settings unless kept. Your agents' plugins and hooks
 //! are theirs: remove them in each agent (README).
 
-use hn_engine::{log, paths};
+use hn_engine::paths;
 use std::path::{Path, PathBuf};
 
 /// The user's settings in the data folder (kept when they ask).
@@ -24,6 +24,7 @@ const SETTINGS: [&str; 6] = [
 ];
 
 /// The app's identifier (tauri.conf.json): the web view keeps its data under it.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 const BUNDLE_ID: &str = "com.human-needed.app";
 
 /// Removes what the app left on this computer. Returns what it did, for the log.
@@ -88,6 +89,7 @@ fn remove_credential() -> bool {
 }
 
 /// The web view's own data (cache, storage), named after the identifier.
+#[allow(unused_mut)]
 fn webview_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
     #[cfg(windows)]
@@ -115,6 +117,7 @@ fn webview_dirs() -> Vec<PathBuf> {
 
 /// The start-at-login entry (tauri-plugin-autostart): a value under the Run key on Windows, a
 /// LaunchAgent on macOS. Named after the app.
+#[allow(unused_mut)]
 fn remove_login_item() -> Vec<String> {
     let mut done = Vec::new();
     #[cfg(windows)]
@@ -174,7 +177,7 @@ pub fn start(app: &tauri::AppHandle, keep_settings: bool) -> Result<(), String> 
             cmd.arg("/DELETEAPPDATA"); // ticks "Delete the application data" for the user
         }
         cmd.spawn().map_err(|e| e.to_string())?;
-        log!("uninstall: opened the uninstaller");
+        hn_engine::log!("uninstall: opened the uninstaller");
         app.exit(0);
         Ok(())
     }
