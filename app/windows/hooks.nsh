@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: GPL-3.0-or-later
+; SPDX-License-Identifier: FSL-1.1-ALv2
 ; Clean uninstall (R-05). Before the program is deleted, it removes what it left: the
 ; start-at-login entry, the cloud link's credential, the log, the web view's cache and, if
 ; "Delete the application data" is ticked, the settings (app/src/uninstall.rs). Not on updates.

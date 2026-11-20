@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Clean uninstall (R-05): nothing of the app stays behind, except the user's settings if they
 //! choose to keep them.
 //!
