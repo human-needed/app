@@ -71,12 +71,13 @@ jobs:
       - name: Install the new release over it (what the updater runs)
         run: |
           taskkill //IM humanneeded.exe //F || true; sleep 2
+          ls "$LOCALAPPDATA/HumanNeeded" | grep -v -e '\.exe$' -e '^logs$' > kept.txt; cat kept.txt
           gh release download "$TAG" -R ${{ github.repository }} -p HumanNeeded-windows-x64-setup.exe -O new.exe
           ./new.exe //S
           powershell -c "Start-Process \"$LOCALAPPDATA\HumanNeeded\humanneeded.exe\" -ArgumentList '--background'"
       - run: node qa/release-check.mjs installed --expect "${TAG#v}" --preview
       - name: Settings survived the update
-        run: test -f "$LOCALAPPDATA/HumanNeeded/seen" && test -f "$LOCALAPPDATA/HumanNeeded/app-settings.json"
+        run: while read -r f; do test -e "$LOCALAPPDATA/HumanNeeded/$f" || { echo "lost $f"; exit 1; }; done < kept.txt
       - name: Uninstall (silent)
         run: |
           taskkill //IM humanneeded.exe //F || true; sleep 2
