@@ -6,11 +6,6 @@ All notable changes to the HumanNeeded app. The format follows
 
 ## [Unreleased]
 
-### Changed
-- The cloud link checks itself with the relay every 30 minutes instead of posting a test
-  message every 3 minutes, and pings every 9 minutes: less traffic, and a broken link is still
-  noticed and reconnected.
-
 ### Added
 - A welcome screen on first run: see the glow and chime, connect your agents (it says which
   ones are on this computer and when each one connects), and choose to start at sign-in.
@@ -23,6 +18,9 @@ All notable changes to the HumanNeeded app. The format follows
   chimes. Turn the glow on or off from the tray menu or Settings.
 
 ### Changed
+- The cloud link checks itself with the relay every 30 minutes instead of posting a test
+  message every 3 minutes, and pings every 9 minutes: less traffic, and a broken link is still
+  noticed and reconnected.
 - The panel's final design: a "Connect your agents" button opens the setup guides, one
   "Cloud agents" switch turns on Cowork and other cloud agents, then the four states, the Puck
   and Settings.
