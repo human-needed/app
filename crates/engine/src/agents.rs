@@ -12,8 +12,18 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-/// Where the per-agent setup guides live (WS-WEB).
-pub const SETUP_URL: &str = "https://human-needed.com/start/";
+/// Where the setup guides live: the README on GitHub, the product page for now (PM, 11-20).
+pub const SETUP_URL: &str = "https://github.com/human-needed/app#set-up-your-agent";
+
+/// One agent's guide (its section of the README), or all of them.
+pub fn setup_url(agent: Option<&str>) -> &'static str {
+    match agent {
+        Some("claude") => "https://github.com/human-needed/app#claude",
+        Some("codex") => "https://github.com/human-needed/app#codex",
+        Some("cursor") => "https://github.com/human-needed/app#cursor",
+        _ => SETUP_URL,
+    }
+}
 
 /// How long an agent stays "connected" after its last event: 7 days.
 pub const RECENT_MS: u64 = 7 * 24 * 3600 * 1000;
@@ -280,6 +290,16 @@ impl Seen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_agent_has_its_guide() {
+        assert_eq!(
+            setup_url(Some("codex")),
+            "https://github.com/human-needed/app#codex"
+        );
+        assert_eq!(setup_url(None), SETUP_URL);
+        assert_eq!(setup_url(Some("../evil")), SETUP_URL);
+    }
 
     #[test]
     fn finds_the_plugin_in_the_claude_desktop_app() {

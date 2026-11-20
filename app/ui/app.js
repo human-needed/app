@@ -480,7 +480,7 @@ $('fix-btn').onclick = async () => {
 const home = () => (st && st.welcome ? 'v-welcome' : 'v-home');
 function welcomeRow(a) {
   const s = (st.agents || []).find((x) => x.id === a.id) || {};
-  let line; let right = '<button type="button" class="btn pri setup" data-guide>Set up</button>';
+  let line; let right = `<button type="button" class="btn pri setup" data-guide="${a.id}">Set up</button>`;
   let off = false;
   if (s.state === 'connected') {
     line = '<i style="--c:var(--hn-ok)"></i>Connected';
@@ -490,7 +490,7 @@ function welcomeRow(a) {
     line = a.id === 'codex' ? 'Set up · trust its hooks: /hooks in Codex' : 'Set up · start a new session';
     right = '';
   } else if (s.found) line = 'Found on this computer';
-  else { line = 'Not found on this computer'; off = true; right = '<button type="button" class="btn setup" data-guide>Set up</button>'; }
+  else { line = 'Not found on this computer'; off = true; right = `<button type="button" class="btn setup" data-guide="${a.id}">Set up</button>`; }
   return `<div class="agrow${off ? ' off' : ''}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;
 }
 function renderWelcome() {
@@ -526,7 +526,8 @@ document.addEventListener('click', (e) => {
   const g = t.closest('[data-go]');
   if (g) { go(g.dataset.go); return; }
   if (t.closest('[data-back]')) { go('v-home', true); return; }
-  if (t.closest('[data-guide]')) { invoke('open_setup_guide').catch(fail); return; }
+  const guide = t.closest('[data-guide]');
+  if (guide) { invoke('open_setup_guide', { agent: guide.dataset.guide || null }).catch(fail); return; }
   const tile = t.closest('[data-state]');
   if (tile) {
     cur = tile.dataset.state;
