@@ -7,6 +7,8 @@ All notable changes to the HumanNeeded app. The format follows
 ## [Unreleased]
 
 ### Added
+- Settings → Advanced → Copy diagnostics: versions, agents, the Puck and the last log lines,
+  ready to paste into a bug report (no keys or session ids).
 - Works without a puck: the screen edges glow on every monitor and the computer plays the
   chimes. Turn the glow on or off from the tray menu or Settings.
 
