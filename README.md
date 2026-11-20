@@ -15,7 +15,7 @@ you or is done. Start a task, look away, come back when it's your turn.
 
 Free · Windows 10 and 11, macOS (Apple silicon and Intel) · No account · Runs on your computer
 
-[Set up your agent](#set-up-your-agent) · [FAQ](#faq) · [All releases](https://github.com/human-needed/app/releases) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
+[Set up your agent](https://human-needed.com/start/) · [FAQ](#faq) · [All releases](https://github.com/human-needed/app/releases) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
 
 [![Release](https://img.shields.io/github/v/release/human-needed/app?include_prereleases&label=release)](https://github.com/human-needed/app/releases)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE)
@@ -48,8 +48,7 @@ Free · Windows 10 and 11, macOS (Apple silicon and Intel) · No account · Runs
 
 2. **Open it.** The app isn't code-signed yet, so Windows or macOS warns you once:
    [here's how to get past it](#installing-an-unsigned-app).
-3. **Follow the welcome screen.** It shows you the glow and chime, finds the agents on your
-   computer, and starts the app when you sign in. Then [set up your agent](#set-up-your-agent).
+3. **[Set up your agent](https://human-needed.com/start/).** The app starts when you sign in.
 
 The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
 right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**. It updates itself:
@@ -94,129 +93,8 @@ shasum -a 256 HumanNeeded-macos-universal.dmg
 
 ## Set up your agent
 
-Install the app first, then add the agents you use. The welcome screen shows which ones are on
-your computer, and each one shows **Connected** after its first signal.
-
-### Claude
-
-In the Claude desktop app (Code tab and Cowork):
-
-1. Open the Claude app.
-2. Click **Customize** (bottom left).
-3. Click **Plugins**.
-4. Click **Add marketplace**, type `human-needed/plugins`, click **Add**.
-5. Find **HumanNeeded** and click **Install**.
-6. For Cowork only: in the HumanNeeded panel, turn on **Cloud agents**.
-7. Check: start a new chat or task. When Claude finishes, the screen edges flash green and a chime plays.
-
-<details>
-<summary>Prefer commands? (Claude Code in a terminal, VS Code or the desktop Code tab)</summary>
-
-Choose one way. They do the same thing as the steps above.
-
-**Inside Claude Code**
-
-1. Type `/plugin marketplace add human-needed/plugins` and press Enter.
-2. Type `/plugin install humanneeded@humanneeded` and press Enter.
-3. Turn on updates: type `/plugin`, open **Marketplaces**, pick **humanneeded**, choose
-   **Enable auto-update**.
-4. Start a new session.
-5. Check: send a message. When Claude finishes, the screen edges flash green and a chime plays.
-
-**In a terminal**
-
-1. Run `claude plugin marketplace add human-needed/plugins`
-2. Run `claude plugin install humanneeded@humanneeded`
-3. Start a new Claude Code session.
-4. Check: send a message. When Claude finishes, the screen edges flash green and a chime plays.
-
-</details>
-
-### Codex
-
-In the Codex desktop app:
-
-1. Open the Codex app.
-2. Click **Customize** in the left bar.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-0-customize.png" alt="Customize in the Codex left bar" width="520">
-
-3. Click **Add** (top right), then **Add a marketplace**.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-1-add-marketplace.png" alt="Add, then Add a marketplace" width="520">
-
-4. Type `human-needed/plugins` in **Source** and click **Add marketplace**.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-2-source.png" alt="Source: human-needed/plugins" width="520">
-
-5. Search for **HumanNeeded** and click it.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-3-find.png" alt="HumanNeeded in the plugin list" width="520">
-
-6. Click **Install plugin**.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-4-install.png" alt="Install plugin" width="520">
-
-7. Under **Hooks**, click **Trust all**. (Codex runs plugin hooks only after you trust them.)
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-5-trust.png" alt="Trust all" width="520">
-
-8. Check: start a chat and send a message. When Codex finishes, the screen edges flash green and a chime plays.
-
-<details>
-<summary>Prefer commands? (Codex CLI)</summary>
-
-1. Run `codex plugin marketplace add human-needed/plugins`
-2. Run `codex plugin add humanneeded@humanneeded`
-3. Start Codex, type `/hooks` and trust the HumanNeeded hooks.
-4. Check: send a message. When Codex finishes, the screen edges flash green and a chime plays.
-
-To update: `codex plugin marketplace upgrade humanneeded`, then trust the changed hooks again.
-
-</details>
-
-Set up the old way (our entries in `~/.codex/hooks.json`)? Delete those entries, or every event
-arrives twice.
-
-### Cursor
-
-In the Cursor app:
-
-1. Open Cursor.
-2. Click **Customize** in the left sidebar.
-3. Click **Hooks**, then **Open config**.
-
-   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/cursor-2-hooks.png" alt="Cursor Customize, Hooks, Open config" width="520">
-
-4. Open our hooks file: [Windows](https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.windows.json) or [macOS](https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.json).
-   Copy all of it.
-5. If the config is empty, paste it in. If it already has hooks, add each of our entries under
-   `"hooks"` instead.
-6. Save (Ctrl+S, or Cmd+S on a Mac).
-7. Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
-
-Cursor shows working and done only (it has no "needs you" hook).
-
-<details>
-<summary>Prefer commands?</summary>
-
-Run the command for your computer. It never overwrites a file you already have.
-
-Windows (PowerShell):
-
-```powershell
-if (!(Test-Path $HOME\.cursor\hooks.json)) { mkdir -Force $HOME\.cursor | Out-Null; curl.exe -fsSL -o $HOME\.cursor\hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.windows.json }
-```
-
-macOS:
-
-```bash
-[ -e ~/.cursor/hooks.json ] || { mkdir -p ~/.cursor && curl -fsSL -o ~/.cursor/hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.json; }
-```
-
-Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
-
-</details>
+Set up your agent: **[human-needed.com/start](https://human-needed.com/start/)** (Claude Code,
+Codex, Cursor and Cowork). The panel shows each one as **Connected** after its first signal.
 
 ## How it works
 
@@ -313,7 +191,7 @@ to the app's [event API](docs/DEVELOPMENT.md#for-agent-integrations-app-events-2
 
 | Problem | Fix |
 |---|---|
-| An agent shows **Not set up** | Install its plugin or hooks ([set up your agent](#set-up-your-agent)), then start a new session. Codex: approve the hooks. |
+| An agent shows **Not set up** | Install its plugin or hooks ([set up your agent](https://human-needed.com/start/)), then start a new session. Codex: approve the hooks. |
 | Nothing lights up and you use a proxy | Add `127.0.0.1` to `NO_PROXY`. The panel shows the exact line. |
 | "Agents can't reach the app" | Another program uses port 24816. Close it or restart your computer. |
 | No sound | Open the state ("Needs you", "Done") in the panel and check its sound and volume; check quiet hours in Settings and "Mute for 1 hour" in the tray menu. |

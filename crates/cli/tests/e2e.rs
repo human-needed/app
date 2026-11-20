@@ -570,10 +570,7 @@ async fn http_events_drive_the_puck() {
         states,
         ["claude=connected", "codex=not_set_up", "cursor=not_set_up"]
     );
-    assert_eq!(
-        st["setup_url"],
-        "https://github.com/human-needed/app#set-up-your-agent"
-    );
+    assert_eq!(st["setup_url"], "https://human-needed.com/start/");
     let health = format!("GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
     assert_eq!(
         tokio::task::spawn_blocking(move || http(port, &health))

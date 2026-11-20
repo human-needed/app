@@ -49,7 +49,7 @@ MOCK = r"""<script>
     ],
     cloud: { enabled: true, state: 'working' }, cloud_last_seen: now - 2 * 3600e3,
     sessions, output: { shown: state, status: { muted: 'off' } }, quiet: {}, update: {}, now,
-    glow: { enabled: true, screens: 'all', thickness: 'mid', skip_fullscreen: true }, welcome: false,
+    glow: { enabled: true, screens: 'all', thickness: 'mid', skip_fullscreen: true },
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd) => cmd === 'status' ? status : cmd === 'alerts_get' ? { alerts: { version: 1, states }, defaults: states } : null },

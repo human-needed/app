@@ -3,7 +3,7 @@
 // commands). The app owns the alert settings: per state, the computer's screen edges and sound,
 // and the puck's light and sound (pushed to the puck when it connects).
 //
-// Views: welcome (first run) · main (Connect your agents, Cloud agents, state cards, Puck, Settings) · state (Computer /
+// Views: main (Connect your agents, Cloud agents, state cards, Puck, Settings) · state (Computer /
 // Puck tabs) · Settings · Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -24,18 +24,6 @@ const SOUNDS = [['ding', 'Ding'], ['chime', 'Chime'], ['rising', 'Rising'], ['ar
 const DURATIONS = [[1, '1 second'], [2, '2 seconds'], [3, '3 seconds'], [5, '5 seconds'], [10, '10 seconds'], [30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
 const UNTIL = { needs: 'Until you answer', working: 'While it works', idle: 'Always', done: '' };
 const SWATCHES = ['#ffa62b', '#ff4d4d', '#ff5fb0', '#a26bff', '#3366ff', '#2ec4d6', '#22e04a', '#ffd2a0', '#ffffff'];
-// The agents listed, in order. Cowork is the cloud link (claude-cloud).
-const AGENTS = [
-  { id: 'claude', name: 'Claude Code', logo: 'claude' },
-  { id: 'codex', name: 'Codex', logo: 'openai' },
-  { id: 'claude-cloud', name: 'Cowork', logo: 'claude' },
-  { id: 'cursor', name: 'Cursor', logo: 'cursor' },
-];
-const LOGO = {
-  claude: '<img src="logos/claude-color.svg" alt="">',
-  openai: '<span class="mk" style="--u:url(logos/openai.svg)"></span>',
-  cursor: '<span class="mk" style="--u:url(logos/cursor.svg)"></span>',
-};
 const CLOUD_TEXT = {
   no_account: 'Sign in to Claude on this computer first',
   connecting: 'Connecting…',
@@ -488,52 +476,6 @@ $('fix-btn').onclick = async () => {
   }
 };
 
-// ---- welcome (R-01, first run) ----
-// The first run opens here until Done: a demo of the glow and chime, each agent (found on this
-// computer or not, connected once it sends a signal) and start at sign-in.
-const home = () => (st && st.welcome ? 'v-welcome' : 'v-home');
-function welcomeRow(a) {
-  const s = (st.agents || []).find((x) => x.id === a.id) || {};
-  let line; let right = `<button type="button" class="btn pri setup" data-guide="${a.id}">Set up</button>`;
-  let off = false;
-  if (s.state === 'connected') {
-    line = '<i style="--c:var(--hn-ok)"></i>Connected';
-    right = '';
-  } else if (s.installed) {
-    // Set up, no signal yet. Codex runs our hooks only once the user trusts them.
-    line = a.id === 'codex' ? 'Set up · trust its hooks: /hooks in Codex' : 'Set up · start a new session';
-    right = '';
-  } else if (s.found) line = 'Found on this computer';
-  else { line = 'Not found on this computer'; off = true; right = `<button type="button" class="btn setup" data-guide="${a.id}">Set up</button>`; }
-  return `<div class="agrow${off ? ' off' : ''}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;
-}
-function renderWelcome() {
-  put($('w-agents'), AGENTS.filter((a) => a.id !== 'claude-cloud').map(welcomeRow).join(''));
-}
-let demo = null;
-$('w-demo').onclick = async () => {
-  // "Needs you", then "Done", as a real task would: the same previews as the state pages.
-  clearTimeout(demo);
-  try {
-    await invoke('puck_action', { action: 'test', arg: 'needs' });
-    demo = setTimeout(() => invoke('puck_action', { action: 'test', arg: 'done' }).catch(fail), 3000);
-    $('w-demo').lastChild.textContent = 'Show again';
-  } catch (e) { fail(e); }
-};
-$('w-auto').onclick = async () => {
-  const on = $('w-auto').getAttribute('aria-checked') !== 'true';
-  try {
-    await invoke('autostart_set', { on });
-    $('w-auto').setAttribute('aria-checked', on);
-    $('autostart').setAttribute('aria-checked', on);
-  } catch (e) { fail(e); }
-};
-$('w-done').onclick = async () => {
-  try { await invoke('welcome_done'); } catch (e) { fail(e); }
-  if (st) st.welcome = false;
-  go('v-home');
-};
-
 // ---- navigation ----
 document.addEventListener('click', (e) => {
   const t = e.target;
@@ -551,7 +493,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (view === 'v-home' || view === 'v-welcome') invoke('panel_hide');
+  if (view === 'v-home') invoke('panel_hide');
   else go('v-home', true);
 });
 
@@ -559,7 +501,6 @@ document.addEventListener('keydown', (e) => {
 function render() {
   if (!st) return;
   if (view === 'v-home') renderHome();
-  else if (view === 'v-welcome') renderWelcome();
   else if (view === 'v-state') renderState();
   else if (view === 'v-settings') renderSettings();
   else if (view === 'v-puck') renderPuck();
@@ -584,11 +525,10 @@ listen('panel-shown', async () => {
   // Opening the panel starts from the main view, with fresh values.
   await loadAlerts();
   await refresh();
-  go(home());
+  go('v-home');
 });
 invoke('autostart_get').then((on) => {
   $('autostart').setAttribute('aria-checked', !!on);
-  $('w-auto').setAttribute('aria-checked', !!on);
 }).catch(() => {});
-loadAlerts().then(refresh).then(() => go(home()));
+loadAlerts().then(refresh).then(() => go('v-home'));
 setInterval(() => { if (!document.hidden) refresh(); }, 5000);
