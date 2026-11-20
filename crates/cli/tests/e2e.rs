@@ -473,7 +473,7 @@ fn free_port() -> u16 {
 /// Sends a raw HTTP request, returns the status code.
 fn http(port: u16, raw: &str) -> u16 {
     use std::io::{Read, Write};
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut s = connect(port);
     s.write_all(raw.as_bytes()).unwrap();
     let mut out = String::new();
     let _ = s.read_to_string(&mut out);
@@ -665,7 +665,7 @@ async fn http_big_post_tool_use_body_is_accepted() {
 /// Sends a request and returns (status, body).
 fn http_full(port: u16, raw: &str) -> (u16, String) {
     use std::io::{Read, Write};
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut s = connect(port);
     s.write_all(raw.as_bytes()).unwrap();
     let mut out = String::new();
     let _ = s.read_to_string(&mut out);
@@ -884,4 +884,18 @@ async fn http_body_with_bom() {
     assert_eq!(code, 204);
     r.expect_shown("working", Duration::from_secs(2)).await;
     assert_eq!(sessions(&r).await, vec!["bom1"]);
+}
+
+/// The hub binds its port right after start: retry the first connect for up to 5 s
+/// instead of failing on a slow CI runner ("connection refused").
+fn connect(port: u16) -> std::net::TcpStream {
+    let mut last = None;
+    for _ in 0..50 {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(s) => return s,
+            Err(e) => last = Some(e),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("hub on {port} not reachable: {:?}", last)
 }

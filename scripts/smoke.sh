@@ -12,14 +12,19 @@ export HN_DATA_DIR="$dir" HN_PUCK=none HN_HTTP_PORT=$port HN_DEV=1
 pid=$!
 log="$dir/logs/app.log"
 ok=""
-for _ in $(seq 1 40); do
+# A cold CI runner can take well over 20 s to start the webview (WebView2 on Windows): wait 90 s.
+for _ in $(seq 1 180); do
   if grep -q "ui: ready" "$log" 2>/dev/null; then ok=1; break; fi
   if ! kill -0 "$pid" 2>/dev/null; then echo "the app exited"; break; fi
   sleep 0.5
 done
-hub="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/v1/status" || true)"
+hub=""
+for _ in $(seq 1 10); do
+  hub="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/v1/status" || true)"
+  [ "$hub" = "200" ] && break; sleep 0.5
+done
 kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null
 echo "--- app.log"; cat "$log" 2>/dev/null; echo "--- output"; tail -20 "$dir/out.txt"
-if [ -z "$ok" ]; then echo "FAIL: no 'ui: ready' within 20 s (main thread blocked?)"; exit 1; fi
+if [ -z "$ok" ]; then echo "FAIL: no 'ui: ready' within 90 s (main thread blocked?)"; exit 1; fi
 if [ "$hub" != "200" ]; then echo "FAIL: hub answered $hub"; exit 1; fi
 echo "OK: main thread ready and hub answers"

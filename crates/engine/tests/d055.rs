@@ -62,7 +62,7 @@ async fn rig(name: &str) -> Rig {
 async fn post(port: u16, path: &'static str) -> u16 {
     tokio::task::spawn_blocking(move || {
         let body = r#"{"session_id":"s1"}"#;
-        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut s = connect(port);
         write!(
             s,
             "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -177,4 +177,18 @@ async fn quiet_hours_dim_mute_and_restore() {
     let st = r.engine.status().await;
     assert_eq!(st["quiet"]["active"], false);
     assert_eq!(st["puck"]["status"]["muted"], "off");
+}
+
+/// The hub binds its port right after start: retry the first connect for up to 5 s
+/// instead of failing on a slow CI runner ("connection refused").
+fn connect(port: u16) -> std::net::TcpStream {
+    let mut last = None;
+    for _ in 0..50 {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(s) => return s,
+            Err(e) => last = Some(e),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("hub on {port} not reachable: {:?}", last)
 }
