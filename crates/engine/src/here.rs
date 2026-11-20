@@ -154,11 +154,11 @@ mod tests {
     fn previews_flashes_and_clears_end_on_time() {
         let mut h = Here::new();
         h.configure(&Alerts::default().computer_settings());
-        // A preview of a state with no limit shows at once and ends after 60 s (D-060).
+        // A preview of a state with no limit shows at once and ends after its fade-in and 5 s.
         h.handle("TEST needs", 0);
         assert_eq!(h.shown_line(1), "test:needs");
-        assert_eq!(h.shown_line(59_999), "test:needs");
-        assert_eq!(h.shown_line(60_000), "idle");
+        assert_eq!(h.shown_line(5_249), "test:needs");
+        assert_eq!(h.shown_line(5_250), "idle");
         // A real state takes over a preview at once.
         h.handle("TEST done", 20_000);
         h.handle("SNAP 30 0000000a:needs", 20_100);
