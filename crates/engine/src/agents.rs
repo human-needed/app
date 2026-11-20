@@ -38,6 +38,22 @@ pub struct AgentStatus {
     pub last_seen: Option<u64>,
     /// Lights the puck (switch, D-055).
     pub enabled: bool,
+    /// The agent seems installed here (its settings folder exists): the welcome screen says so.
+    pub found: bool,
+}
+
+/// Whether an agent seems installed on this computer: its settings folder exists.
+pub fn found(id: &str) -> bool {
+    let home = dirs::home_dir();
+    let dir = match id {
+        "claude" => crate::paths::claude_dir(),
+        "codex" => std::env::var_os("CODEX_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home.map(|h| h.join(".codex"))),
+        "cursor" => home.map(|h| h.join(".cursor")),
+        _ => None,
+    };
+    dir.is_some_and(|d| d.is_dir())
 }
 
 pub struct Seen {
@@ -156,6 +172,7 @@ impl Seen {
                     state: if recent { "connected" } else { "not_set_up" },
                     last_seen,
                     enabled: self.enabled(id),
+                    found: found(id),
                 }
             })
             .collect()

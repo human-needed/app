@@ -18,6 +18,28 @@
 </svg>
 
 <div id="panel">
+  <!-- WELCOME (R-01): first run only, until Done -->
+  <section class="view" id="v-welcome" aria-label="Welcome">
+    <div class="brand"><svg class="mark" aria-hidden="true"><use href="#ring"/></svg><span class="wordmark">HUMAN_NEEDED</span></div>
+    <div class="scroll">
+      <div class="grp">
+        <h4>1 · See it work</h4>
+        <p class="wtext">When an agent needs you, or finishes, the edges of your screen glow and a chime plays. Start a task, look away, come back when it's your turn.</p>
+        <div class="btns"><button type="button" class="btn pri" id="w-demo"><svg class="i" style="width:14px;height:14px"><use href="#i-play"/></svg>Show me</button></div>
+      </div>
+      <div class="grp">
+        <h4>2 · Connect your agents</h4>
+        <div class="agents" id="w-agents"></div>
+        <p class="note">Set up opens the guide. Then start a new session: the agent shows Connected after its first signal. Cowork and Claude on the web: turn it on later, from the main view.</p>
+      </div>
+      <div class="grp">
+        <h4>3 · Start with your computer</h4>
+        <div class="row"><span class="gr">Start when I sign in<small>So it's there when an agent needs you</small></span><button type="button" class="sw" role="switch" aria-checked="true" id="w-auto" aria-label="Start when I sign in"></button></div>
+      </div>
+    </div>
+    <div class="foot one"><button type="button" class="btn pri" id="w-done">Done</button></div>
+  </section>
+
   <!-- MAIN: agents, states, puck, settings -->
   <section class="view" id="v-home" aria-label="HumanNeeded">
     <div class="brand"><svg class="mark" aria-hidden="true"><use href="#ring"/></svg><span class="wordmark">HUMAN_NEEDED</span></div>

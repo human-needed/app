@@ -3,8 +3,8 @@
 // commands). The app owns the alert settings: per state, the computer's screen edges and sound,
 // and the puck's light and sound (pushed to the puck when it connects).
 //
-// Views: main (agents, state cards, Puck, Settings) · state (Computer / Puck tabs) · Settings ·
-// Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
+// Views: welcome (first run) · main (agents, state cards, Puck, Settings) · state (Computer /
+// Puck tabs) · Settings · Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
 'use strict';
 const $ = (id) => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
@@ -486,6 +486,48 @@ $('fix-btn').onclick = async () => {
   }
 };
 
+// ---- welcome (R-01, first run) ----
+// The first run opens here until Done: a demo of the glow and chime, each agent (found on this
+// computer or not, connected once it sends a signal) and start at sign-in.
+const home = () => (st && st.welcome ? 'v-welcome' : 'v-home');
+function welcomeRow(a) {
+  const s = (st.agents || []).find((x) => x.id === a.id) || {};
+  let line; let right = '<button type="button" class="btn pri setup" data-guide>Set up</button>';
+  let off = false;
+  if (s.state === 'connected') {
+    line = '<i style="--c:var(--hn-ok)"></i>Connected';
+    right = '';
+  } else if (s.found) line = 'Found on this computer';
+  else { line = 'Not found on this computer'; off = true; right = '<button type="button" class="btn setup" data-guide>Set up</button>'; }
+  return `<div class="agrow${off ? ' off' : ''}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;
+}
+function renderWelcome() {
+  put($('w-agents'), AGENTS.filter((a) => a.id !== 'claude-cloud').map(welcomeRow).join(''));
+}
+let demo = null;
+$('w-demo').onclick = async () => {
+  // "Needs you", then "Done", as a real task would: the same previews as the state pages.
+  clearTimeout(demo);
+  try {
+    await invoke('puck_action', { action: 'test', arg: 'needs' });
+    demo = setTimeout(() => invoke('puck_action', { action: 'test', arg: 'done' }).catch(fail), 3000);
+    $('w-demo').lastChild.textContent = 'Show again';
+  } catch (e) { fail(e); }
+};
+$('w-auto').onclick = async () => {
+  const on = $('w-auto').getAttribute('aria-checked') !== 'true';
+  try {
+    await invoke('autostart_set', { on });
+    $('w-auto').setAttribute('aria-checked', on);
+    $('autostart').setAttribute('aria-checked', on);
+  } catch (e) { fail(e); }
+};
+$('w-done').onclick = async () => {
+  try { await invoke('welcome_done'); } catch (e) { fail(e); }
+  if (st) st.welcome = false;
+  go('v-home');
+};
+
 // ---- navigation ----
 document.addEventListener('click', (e) => {
   const t = e.target;
@@ -502,7 +544,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (view === 'v-home') invoke('panel_hide');
+  if (view === 'v-home' || view === 'v-welcome') invoke('panel_hide');
   else go('v-home', true);
 });
 
@@ -510,6 +552,7 @@ document.addEventListener('keydown', (e) => {
 function render() {
   if (!st) return;
   if (view === 'v-home') renderHome();
+  else if (view === 'v-welcome') renderWelcome();
   else if (view === 'v-state') renderState();
   else if (view === 'v-settings') renderSettings();
   else if (view === 'v-puck') renderPuck();
@@ -533,9 +576,12 @@ listen('changed', () => refresh());
 listen('panel-shown', async () => {
   // Opening the panel starts from the main view, with fresh values.
   await loadAlerts();
-  go('v-home');
-  refresh();
+  await refresh();
+  go(home());
 });
-invoke('autostart_get').then((on) => $('autostart').setAttribute('aria-checked', !!on)).catch(() => {});
-loadAlerts().then(refresh).then(() => go('v-home'));
+invoke('autostart_get').then((on) => {
+  $('autostart').setAttribute('aria-checked', !!on);
+  $('w-auto').setAttribute('aria-checked', !!on);
+}).catch(() => {});
+loadAlerts().then(refresh).then(() => go(home()));
 setInterval(() => { if (!document.hidden) refresh(); }, 5000);
