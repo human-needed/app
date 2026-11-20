@@ -374,7 +374,7 @@ $('diag').onclick = async () => {
 };
 $('adv').addEventListener('toggle', fit);
 function resetButton() {
-  $('danger').innerHTML = '<button type="button" class="btn red" data-reset>Reset lights and sounds</button>';
+  $('danger').innerHTML = '<div class="btns"><button type="button" class="btn red" data-reset>Reset lights and sounds</button><button type="button" class="btn red" data-uninstall>Uninstall HumanNeeded…</button></div>';
   fit();
 }
 $('danger').addEventListener('click', async (e) => {
@@ -387,6 +387,18 @@ $('danger').addEventListener('click', async (e) => {
     toast('Lights and sounds reset');
     resetButton();
     render();
+  } else if (e.target.closest('[data-uninstall]')) {
+    // R-05: removes the login item, the cloud link's credential, logs and caches; settings
+    // only if the user doesn't keep them. Windows: the uninstaller takes over from here.
+    $('danger').innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:12px">Remove HumanNeeded from this computer? Your agents\' plugins and hooks stay; remove them in each agent.</p><div class="row"><span class="gr">Keep my settings<small>For when you install it again</small></span><button type="button" class="sw" role="switch" aria-checked="true" id="un-keep" aria-label="Keep my settings"></button></div><div class="btns"><button type="button" class="btn red" data-un-yes>Uninstall</button><button type="button" class="btn" data-no>Cancel</button></div>';
+    fit();
+  } else if (e.target.closest('#un-keep')) {
+    const k = $('un-keep');
+    k.setAttribute('aria-checked', k.getAttribute('aria-checked') !== 'true');
+  } else if (e.target.closest('[data-un-yes]')) {
+    const keepSettings = $('un-keep').getAttribute('aria-checked') === 'true';
+    e.target.disabled = true;
+    try { await invoke('uninstall', { keepSettings }); } catch (err) { fail(err); resetButton(); }
   } else if (e.target.closest('[data-no]')) resetButton();
 });
 
