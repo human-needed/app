@@ -39,6 +39,8 @@ All notable changes to the HumanNeeded app. The format follows
   request templates.
 
 ### Fixed
+- Windows: quitting Codex (or Cursor) now ends its Working light. It could stay on while
+  another program still held on to the closed agent.
 - A preview of a state that lasts "while it works" or "until you answer" now runs for 5 seconds
   (it ran for a minute), on the screen and the Puck. **Stop** ends a preview at once, and so does
   changing a setting.
