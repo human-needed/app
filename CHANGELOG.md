@@ -28,6 +28,11 @@ All notable changes to the HumanNeeded app. The format follows
   request templates.
 
 ### Fixed
+- Windows: "Start when I sign in" is on after the first run, as intended, also when the app runs
+  as an administrator. It's for your user only, and Task Manager's Startup apps switch is
+  respected.
+- macOS: if you drag the app to the Trash, its start-at-login entry removes itself at your next
+  sign-in instead of failing every time.
 - The screen-edge glow keeps each state's duration exactly, like the puck (a 3 s preview no
   longer lasts about 15 s).
 - Dropdowns in the panel no longer close while you choose.

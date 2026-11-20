@@ -30,7 +30,7 @@ const BUNDLE_ID: &str = "com.human-needed.app";
 /// Removes what the app left on this computer. Returns what it did, for the log.
 pub fn clean(keep_settings: bool) -> Vec<String> {
     let mut done = Vec::new();
-    done.extend(remove_login_item());
+    done.extend(crate::login::remove());
     if let Some(m) = crate::hn_install::retire() {
         done.push(format!("hn: {m}"));
     }
@@ -113,40 +113,6 @@ fn webview_dirs() -> Vec<PathBuf> {
         );
     }
     v
-}
-
-/// The start-at-login entry (tauri-plugin-autostart): a value under the Run key on Windows, a
-/// LaunchAgent on macOS. Named after the app.
-#[allow(unused_mut)]
-fn remove_login_item() -> Vec<String> {
-    let mut done = Vec::new();
-    #[cfg(windows)]
-    {
-        use winreg::{enums::*, RegKey};
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        for key in [
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
-        ] {
-            if let Ok(k) = hkcu.open_subkey_with_flags(key, KEY_READ | KEY_WRITE) {
-                for name in ["HumanNeeded", "humanneeded"] {
-                    if k.delete_value(name).is_ok() {
-                        done.push(format!("login item ({key})"));
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "macos")]
-    if let Some(h) = dirs::home_dir() {
-        for name in ["HumanNeeded", "humanneeded"] {
-            let p = h.join("Library/LaunchAgents").join(format!("{name}.plist"));
-            if std::fs::remove_file(&p).is_ok() {
-                done.push(format!("login item ({})", p.display()));
-            }
-        }
-    }
-    done
 }
 
 /// `humanneeded --uninstall [--purge]`: called by the Windows uninstaller before it removes the
