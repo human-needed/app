@@ -103,6 +103,7 @@ select.sel { width: 100%; font: 13px var(--hn-font); color: var(--hn-text); back
 .btn.connect { width: 100%; justify-content: center; padding: 10px 12px; font-size: 13px; gap: 9px; }
 .btn.connect .logos { display: inline-flex; gap: 4px; align-items: center; }
 .btn.connect .logos img, .btn.connect .logos .mk { width: 14px; height: 14px; display: inline-block; }
+.btn.connect .logos .mk { background: var(--hn-text); -webkit-mask: var(--u) center / contain no-repeat; mask: var(--u) center / contain no-repeat; }
 .btn.connect svg.i { width: 13px; height: 13px; color: var(--hn-muted); }
 .cloudrow { padding-top: 10px; padding-bottom: 10px; }
 .navrow.hr { border-top: var(--hn-hairline); }
