@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
-//! Cloud link against a local fake relay (relay-api §3): a WebSocket server that checks the
-//! hello and forwards what is POSTed to `/v1/h/<K>` to the sockets that said hello with `K`, like
-//! the real relay.
+//! Cloud link against a local fake relay (relay-api §3, 1.1): a WebSocket server that checks the
+//! hello, answers it and each `check` with `ok`, and forwards what is POSTed to `/v1/h/<K>` to the
+//! sockets that said hello with `K`, like the real relay.
 
 use futures_util::{SinkExt, StreamExt};
 use hn_engine::cloud::{self, CloudConfig, MemCreds};
@@ -25,6 +25,8 @@ type Bus = broadcast::Sender<(String, String)>;
 struct Seen {
     hellos: Vec<Value>,
     other: Vec<Value>,
+    /// The relay stops answering `check` (a broken link).
+    silent: bool,
 }
 
 /// Fake relay: WS on one port, POST on another. `refuse` = answer every hello with that error.
@@ -52,6 +54,19 @@ async fn fake_relay(refuse: Option<&'static str>) -> (String, String, Arc<Mutex<
                                     let _ = ws.send(WsMsg::text(json!({"t":"err","e":e}).to_string())).await;
                                     let _ = ws.close(None).await;
                                     return;
+                                }
+                                let silent = seen.lock().unwrap().silent;
+                                if !silent {
+                                    let _ = ws.send(WsMsg::text(r#"{"t":"ok"}"#)).await;
+                                }
+                            } else if v["t"] == "check" {
+                                let silent = {
+                                    let mut s = seen.lock().unwrap();
+                                    s.other.push(v);
+                                    s.silent
+                                };
+                                if !silent {
+                                    let _ = ws.send(WsMsg::text(r#"{"t":"ok"}"#)).await;
                                 }
                             } else {
                                 seen.lock().unwrap().other.push(v);
@@ -165,6 +180,9 @@ async fn rig_with(name: &str, ws_url: String, post_url: String, desktop: Option<
             account_files: vec![dir.path().join("Claude-Data/*/config.json"), claude_json],
             settings_file: dir.path().join("cloud.json"),
             creds: creds.clone(),
+            // Checked often, so the tests see it work and fail.
+            check_every: Duration::from_millis(400),
+            ok_wait: Duration::from_millis(500),
         }),
     })
     .await
@@ -202,7 +220,7 @@ async fn cloud_states_light_the_puck() {
     assert!(seen.lock().unwrap().hellos.is_empty());
 
     r.engine.cloud_set(true).await.unwrap();
-    // Hello, then the self-check probe comes back through POST → relay → socket.
+    // Hello, answered with ok (relay-api 1.1).
     let c = wait_cloud(&r.engine, "working", 10).await;
     let k = cloud::route_key(UUID);
     assert_eq!(c["key"], k);
@@ -211,11 +229,26 @@ async fn cloud_states_light_the_puck() {
         let s = seen.lock().unwrap();
         assert_eq!(s.hellos[0], json!({"t":"hello","k":k,"i":id.i,"s":id.s}));
     }
-    // The probe isn't a session.
+    // An older app of the same account still POSTs the 1.0 self-check: not a session.
+    bus.send((
+        k.clone(),
+        json!({"t":"state","s":"idle","h":cloud::probe_h(&k),"ts":1,"hb":true}).to_string(),
+    ))
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(r.engine.status().await["sessions"]
         .as_array()
         .unwrap()
         .is_empty());
+    // The link is checked, and stays working while the relay answers.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    assert!(seen
+        .lock()
+        .unwrap()
+        .other
+        .iter()
+        .any(|m| m == &json!({"t":"check"})));
+    assert_eq!(r.engine.status().await["cloud"]["state"], "working");
 
     // A cloud chat needs you, then finishes.
     bus.send((
@@ -301,7 +334,7 @@ async fn cloud_listens_on_every_account() {
         .map(|k| k["key"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(keys, [kd.clone(), kc.clone()]);
-    // Both probes come back.
+    // Both links are answered.
     let end = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let st = r.engine.status().await;
@@ -395,4 +428,26 @@ async fn cloud_turn_on_detects_account_switch() {
         .map(|k| k["key"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(keys, [cloud::route_key(other), cloud::route_key(UUID)]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cloud_reconnects_when_the_relay_stops_answering() {
+    let (ws, post, seen, _bus) = fake_relay(None).await;
+    let r = rig("silent", ws, post).await;
+    r.engine.cloud_set(true).await.unwrap();
+    wait_cloud(&r.engine, "working", 10).await;
+    let hellos = seen.lock().unwrap().hellos.len();
+
+    // No ok to the next check: the link says so and reconnects (after the usual backoff).
+    seen.lock().unwrap().silent = true;
+    let c = wait_cloud(&r.engine, "connecting", 5).await;
+    assert_eq!(
+        c["error"],
+        "The cloud link stopped answering. Reconnecting…"
+    );
+
+    // The relay answers again: working once more, on a new connection.
+    seen.lock().unwrap().silent = false;
+    wait_cloud(&r.engine, "working", 15).await;
+    assert!(seen.lock().unwrap().hellos.len() > hellos);
 }
