@@ -7,7 +7,7 @@
 Rerun it whenever the panel's design changes. Each frame is one headless-browser screenshot of
 scene.html#t=<ms>, so the timing is exact and nothing on your own screen is captured.
 """
-import os, re, shutil, subprocess, sys, tempfile
+import functools, http.server, os, re, shutil, subprocess, sys, tempfile, threading
 from pathlib import Path
 from PIL import Image
 
@@ -60,6 +60,11 @@ MOCK = r"""<script>
 """
 
 
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
 def browser():
     for b in BROWSERS:
         p = shutil.which(b) or (b if os.path.exists(b) else None)
@@ -84,7 +89,11 @@ def shot(exe, url, path, w=W, h=H, scale=1.0, wait=2500):
 def main():
     exe = browser()
     panel_page()
-    scene = (HERE / "scene.html").as_uri()
+    # Served over http (not file://): the browser blocks masked images (the agent logos) from files.
+    handler = functools.partial(QuietHandler, directory=str(ROOT))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    scene = f"http://127.0.0.1:{server.server_port}/docs/hero/scene.html"
     tmp = Path(tempfile.mkdtemp())
     frames = []
     try:
@@ -109,6 +118,7 @@ def main():
         Image.open(tmp / "social.png").convert("RGB").save(OUT / "social-preview.png", optimize=True)
         print("wrote", OUT / "hero.gif", "and", OUT / "social-preview.png")
     finally:
+        server.shutdown()
         shutil.rmtree(tmp, ignore_errors=True)
         (HERE / "panel.html").unlink(missing_ok=True)
 
