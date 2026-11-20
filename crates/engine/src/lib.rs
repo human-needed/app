@@ -21,6 +21,7 @@
 pub mod agents;
 pub mod alerts;
 pub mod cloud;
+pub mod diagnostics;
 pub mod engine;
 pub mod firmware;
 pub mod here;
