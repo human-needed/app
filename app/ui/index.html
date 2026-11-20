@@ -14,6 +14,8 @@
   <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v5H5V7h5"/></symbol>
 </svg>
 
@@ -30,7 +32,7 @@
       <div class="grp">
         <h4>2 · Connect your agents</h4>
         <div class="agents" id="w-agents"></div>
-        <p class="note">Set up opens the guide. Then start a new session: the agent shows Connected after its first signal. Cowork and Claude on the web: turn it on later, from the main view.</p>
+        <p class="note">Set up opens the guide. Then start a new session: the agent shows Connected after its first signal. Cowork and other cloud agents: turn on Cloud agents in the main view.</p>
       </div>
       <div class="grp">
         <h4>3 · Start with your computer</h4>
@@ -50,8 +52,11 @@
         <span class="mono" id="fix-code" hidden></span>
         <button type="button" class="btn pri" id="fix-btn" hidden></button>
       </div>
-      <div class="agents" id="agents"></div>
+      <button type="button" class="btn connect" data-guide><span class="logos"><img src="logos/claude-color.svg" alt=""><span class="mk" style="--u:url(logos/openai.svg)"></span><span class="mk" style="--u:url(logos/cursor.svg)"></span></span>Connect your agents<svg class="i"><use href="#i-ext"/></svg></button>
       <p class="note" id="mute-note" hidden></p>
+    </div>
+    <div class="pad hr cloudrow">
+      <div class="agrow"><span class="agentmark"><svg class="i"><use href="#i-cloud"/></svg></span><span class="gr">Cloud agents <span class="tip" tabindex="0" aria-label="About cloud agents"><svg class="i"><use href="#i-info"/></svg><span class="tt" role="tooltip">Turn on to get alerts from Claude Cowork and other agents that run in the cloud.</span></span><small id="cloud-note" hidden></small></span><button type="button" class="sw" role="switch" aria-checked="false" id="cloud-sw" aria-label="Cloud agents"></button></div>
     </div>
     <div class="pad hr">
       <p class="sh">When an agent is…</p>
@@ -97,7 +102,7 @@
         <details class="adv" id="adv"><summary><svg class="i" style="width:13px;height:13px"><use href="#i-next"/></svg>Advanced</summary>
           <div class="in">
             <div class="kv" id="kv"></div>
-            <div class="btns"><button type="button" class="btn" id="clear">Clear all alerts</button><button type="button" class="btn" id="diag">Copy diagnostics</button><button type="button" class="btn" id="log">Open log</button><button type="button" class="btn" data-guide>Setup guides</button></div>
+            <div class="btns"><button type="button" class="btn" id="clear">Clear all alerts</button><button type="button" class="btn" id="diag">Copy diagnostics</button><button type="button" class="btn" id="log">Open log</button></div>
             <div id="danger" style="padding-top:6px"></div>
           </div>
         </details>

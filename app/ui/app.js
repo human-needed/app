@@ -3,7 +3,7 @@
 // commands). The app owns the alert settings: per state, the computer's screen edges and sound,
 // and the puck's light and sound (pushed to the puck when it connects).
 //
-// Views: welcome (first run) · main (agents, state cards, Puck, Settings) · state (Computer /
+// Views: welcome (first run) · main (Connect your agents, Cloud agents, state cards, Puck, Settings) · state (Computer /
 // Puck tabs) · Settings · Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -128,35 +128,16 @@ function problem() {
   }
   return null;
 }
-function agentRow(a) {
-  const sessions = (st.sessions || []).filter((s) => s.agent === a.id && (s.state === 'needs' || s.state === 'working'));
-  const active = sessions.find((s) => s.state === 'needs') || sessions[0];
-  let on; let line; let setup = false;
-  if (a.id === 'claude-cloud') {
-    const c = st.cloud || {};
-    on = !!c.enabled;
-    const seen = st.cloud_last_seen;
-    if (on && CLOUD_TEXT[c.state] && c.state !== 'working') line = esc(c.error || CLOUD_TEXT[c.state]);
-    else if (!on) line = 'Off';
-    else if (seen) line = `<i></i>Last signal ${ago(seen)}`;
-    else line = 'Waiting for a cloud chat';
-    if (!c.state && c.enabled === undefined) return '';
-  } else {
-    const s = (st.agents || []).find((x) => x.id === a.id) || {};
-    on = s.enabled !== false;
-    setup = s.state !== 'connected';
-    if (setup) line = 'Not set up';
-    else if (!on) line = 'Off';
-    else if (s.last_seen) line = `<i></i>Last signal ${ago(s.last_seen)}`;
-    else line = '';
-  }
-  if (on && active) {
-    line = `<i style="--c:var(--hn-${active.state})"></i>${STATE_NAME[active.state]} · ${ago(active.set_at || active.last_seen)}`;
-  }
-  const right = setup
-    ? '<button type="button" class="btn pri setup" data-guide>Set up</button>'
-    : sw(`data-agent="${esc(a.id)}" aria-label="${esc(a.name)}"`, on);
-  return `<div class="agrow${on && !setup ? '' : ' off'}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;
+// Cloud agents (Cowork and other cloud agents, through the relay): one switch on the main view.
+function renderCloud() {
+  const c = st.cloud || {};
+  const on = !!c.enabled;
+  const b = $('cloud-sw');
+  if (!b.disabled) b.setAttribute('aria-checked', on);
+  // Only a problem is worth a line here (the design has none otherwise).
+  const msg = on && c.state && c.state !== 'working' && c.state !== 'connected' ? (c.error || CLOUD_TEXT[c.state] || '') : '';
+  $('cloud-note').hidden = !msg;
+  $('cloud-note').textContent = msg;
 }
 function tileText(id) {
   const a = A.states[id];
@@ -178,7 +159,7 @@ function renderHome() {
     $('fix-btn').hidden = !pr.btn;
     $('fix-btn').textContent = pr.btn || '';
   }
-  put($('agents'), AGENTS.map(agentRow).join(''));
+  renderCloud();
   const m = (st.output && st.output.status && st.output.status.muted) || 'off';
   const q = st.quiet || {};
   let note = '';
@@ -468,17 +449,16 @@ $('padv').addEventListener('toggle', fit);
 $('see-puck').onclick = () => invoke('open_puck_page').catch(fail);
 
 // ---- main view actions ----
-$('agents').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-agent]');
-  if (!b || b.disabled) return;
+$('cloud-sw').onclick = async () => {
+  const b = $('cloud-sw');
+  if (b.disabled) return;
   const on = b.getAttribute('aria-checked') !== 'true';
   b.disabled = true;
-  try {
-    if (b.dataset.agent === 'claude-cloud') await invoke('cloud_set', { on });
-    else await invoke('agent_set', { id: b.dataset.agent, on });
-  } catch (err) { fail(err); }
+  b.setAttribute('aria-checked', on);
+  try { await invoke('cloud_set', { on }); } catch (err) { fail(err); }
+  b.disabled = false;
   refresh();
-});
+};
 $('fix-btn').onclick = async () => {
   const pr = problem();
   if (pr && pr.code) {
