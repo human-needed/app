@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! "Copy diagnostics" (Settings → Advanced): a plain-text summary for a bug report. Versions,
 //! agents, the agent port, the cloud link, the puck, what's shown and the last log lines. No
 //! keys, no session ids, no serial numbers; the user's home folder is shown as `~`.

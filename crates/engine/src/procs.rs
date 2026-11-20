@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Which agent process sent a hook (app-events 2.0 §2: Codex, Cursor → process alive).
 //!
 //! Codex and Cursor hooks run `curl` (via PowerShell on Windows) as a child of the agent. While

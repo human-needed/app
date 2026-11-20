@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! HumanNeeded core: everything that can be tested without I/O.
 //!
 //! - [`event`]: the `hn-events/1` wire format (agent -> app).

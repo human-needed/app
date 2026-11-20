@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! HumanNeeded puck simulator.
 //!
 //! [`SimPuck`] is the protocol state machine; [`Sim`] runs it behind a byte stream (TCP for a

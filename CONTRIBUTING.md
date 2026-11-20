@@ -47,7 +47,7 @@ the event API and the simulator.
 - Add or update tests for behaviour you change.
 - Keep the code style: `cargo fmt`, no clippy warnings, comments that say *why*.
 - UI text: short, plain words; the same state names everywhere (Working, Needs you, Done, Idle).
-- New source files start with `// SPDX-License-Identifier: GPL-3.0-or-later`.
+- New source files start with `// SPDX-License-Identifier: FSL-1.1-ALv2`.
 - Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 
 ## Sign your commits (DCO)
@@ -103,5 +103,7 @@ Forgot? `git commit --amend -s` fixes the last commit; `git rebase --signoff mai
 
 ## Licence
 
-HumanNeeded is licensed under the [GNU General Public License v3.0 or later](LICENSE). By
-contributing, you agree that your contribution is licensed under the same terms.
+HumanNeeded is licensed under the [Functional Source License, Version 1.1, ALv2 Future
+License](LICENSE) (FSL-1.1-ALv2). By contributing, you agree that your contribution is licensed
+under the same terms, including its change to the Apache License 2.0 two years after release. In
+the DCO above, "the open source license" means this licence.

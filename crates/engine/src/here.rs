@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! "This computer" (D-059): the screen edges and the computer's sound, driven exactly like a
 //! puck. It is the puck's own state machine (`hn_sim::SimPuck`, firmware 2.0.x sounds) run inside
 //! the app: it gets every snapshot, `FLASH`, `MUTE` and `TEST`, works out what to show and

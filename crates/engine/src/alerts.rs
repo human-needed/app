@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The app's alert settings (D-059 redesign): for each state, how this computer shows it
 //! (screen edges, sound) and how the puck shows it (light, sound). The app owns them, kept in
 //! `alerts.json`; the computer's outputs follow them, and the puck gets its part pushed whenever

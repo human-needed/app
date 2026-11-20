@@ -16,8 +16,8 @@
   },
   "bundle": {
     "active": true,
-    "license": "GPL-3.0-or-later",
-    "copyright": "© 2026 HumanNeeded contributors. GPL-3.0-or-later.",
+    "license": "FSL-1.1-ALv2",
+    "copyright": "© 2026 HumanNeeded. FSL-1.1-ALv2.",
     "targets": [
       "nsis"
     ],

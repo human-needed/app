@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 // Automated part of the release check (pm/RELEASE.md R-09). Node >= 18, no packages.
 //
 //   node qa/release-check.mjs release [tag]   release assets: names, SHA256SUMS, latest.json,

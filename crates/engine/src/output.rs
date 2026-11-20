@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! What this computer's screen edges show (D-059), worked out in one place from the state
 //! machine's shown state ([`crate::here`]) and the app's alert settings. Previews and real
 //! agent events take the same path: the machine decides what is shown and for how long, this

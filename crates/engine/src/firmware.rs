@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! One-click firmware update (D-037, D-044): `latest.json` → download → SHA-256 → `BOOTSEL` →
 //! copy the .uf2 to the RPI-RP2 drive → wait for the puck to come back with the new version.
 //!

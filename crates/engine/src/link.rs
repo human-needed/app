@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The puck link: the only owner of the puck's serial port (D-027).
 //!
 //! Finds the puck (VID 0x2E8A + product "HumanNeeded", confirmed by `HELLO`), runs one command

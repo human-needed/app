@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Quiet hours (D-055): every day between `from` and `to` (local time) the puck's sounds are
 //! muted and its light dimmed; every state still lights. Done with the puck's own commands
 //! (`MUTE <min>`, `SET brightness`), so no firmware change. The level from before is kept in

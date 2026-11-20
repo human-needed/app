@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 use std::path::PathBuf;
 
 /// Per-user data folder (logs, config). `HN_DATA_DIR` overrides it (tests).
