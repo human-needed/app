@@ -32,6 +32,7 @@ async fn status(
     let mut st = engine.status().await;
     st["update"] = serde_json::to_value(updates.status()).unwrap_or_default();
     st["glow"] = serde_json::to_value(glow::options(&app)).unwrap_or_default();
+    st["welcome"] = welcome_file().exists().into();
     Ok(st)
 }
 
@@ -182,6 +183,17 @@ fn autostart_set(app: AppHandle, on: bool) -> R<()> {
     if on { a.enable() } else { a.disable() }.map_err(|e| e.to_string())
 }
 
+/// R-01: the first run shows the welcome screen until the user finishes it.
+fn welcome_file() -> std::path::PathBuf {
+    paths::data_dir().join("welcome-pending")
+}
+
+#[tauri::command]
+fn welcome_done() {
+    let _ = std::fs::remove_file(welcome_file());
+    log!("welcome: done");
+}
+
 #[tauri::command]
 fn open_log() -> R<()> {
     let path = log::path().ok_or("no log")?;
@@ -230,6 +242,7 @@ fn main() {
             autostart_get,
             autostart_set,
             open_log,
+            welcome_done,
             update_check,
             update_auto,
             update_install
@@ -258,10 +271,14 @@ fn main() {
                     }
                 });
             }
-            if first_run && !dev {
+            if first_run {
                 let _ = std::fs::create_dir_all(paths::data_dir());
                 let _ = std::fs::write(paths::data_dir().join("seen"), "1");
-                let _ = app.autolaunch().enable(); // starts at login by default (D-027)
+                // The welcome screen (R-01) shows until the user finishes it.
+                let _ = std::fs::write(welcome_file(), "1");
+                if !dev {
+                    let _ = app.autolaunch().enable(); // starts at login by default (D-027)
+                }
             }
             updater::start(app.handle());
             panel::init(app.handle())?;
