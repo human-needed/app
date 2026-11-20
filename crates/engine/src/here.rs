@@ -21,6 +21,9 @@ pub struct Sound {
     pub repeat: u8,
 }
 
+/// How long a preview of a state with no time limit lasts (seconds), here and on the puck.
+pub const UNTIMED_PREVIEW_S: u64 = 5;
+
 pub struct Here {
     puck: SimPuck,
 }
@@ -36,10 +39,17 @@ impl Here {
         let mut puck = SimPuck::with_fw2_defaults("app");
         // The glow fades in first: a state's duration is its light effect alone.
         puck.machine.lead_ms = hn_sim::machine::LIGHT_FADE_MS;
+        // A preview of "while it works" / "until you answer" is a short demo, not a minute.
+        puck.machine.untimed_preview_ms = hn_sim::machine::LIGHT_FADE_MS + UNTIMED_PREVIEW_S * 1000;
         Self { puck }
     }
 
     /// Takes these settings (`key → value`, as on a puck); bad ones are skipped.
+    /// Ends a preview now (Stop, or a setting changed).
+    pub fn end_preview(&mut self) {
+        self.puck.machine.end_test();
+    }
+
     pub fn configure(&mut self, settings: &BTreeMap<String, String>) {
         for (k, v) in settings {
             if self.puck.settings.get(k) != Some(v) {

@@ -45,6 +45,9 @@ All notable changes to the HumanNeeded app. The format follows
   request templates.
 
 ### Fixed
+- A preview of a state that lasts "while it works" or "until you answer" now runs for 5 seconds
+  (it ran for a minute), on the screen and the Puck. **Stop** ends a preview at once, and so does
+  changing a setting.
 - Automatic updates now install themselves: a downloaded update installs when nothing is
   showing and the panel is closed, and the app comes back in the background. Before, it waited
   for you to click "Restart to update".
