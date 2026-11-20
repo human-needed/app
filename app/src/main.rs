@@ -11,6 +11,7 @@ mod hn_install;
 mod panel;
 mod sound;
 mod tray;
+mod uninstall;
 mod updater;
 
 use hn_engine::{agents, alerts, diagnostics, log, paths, quiet, Config, Engine};
@@ -215,6 +216,12 @@ fn welcome_done() {
     log!("welcome: done");
 }
 
+/// Settings → Advanced → Uninstall (R-05).
+#[tauri::command]
+fn uninstall(app: AppHandle, keep_settings: bool) -> R<()> {
+    uninstall::start(&app, keep_settings)
+}
+
 #[tauri::command]
 fn open_log() -> R<()> {
     let path = log::path().ok_or("no log")?;
@@ -232,6 +239,10 @@ pub fn open_path(path: &std::path::Path) -> R<()> {
 }
 
 fn main() {
+    // The Windows uninstaller's clean-up (R-05): before anything else starts or writes a log.
+    if uninstall::from_args() {
+        return;
+    }
     log::init(paths::data_dir().join("logs"));
     let first_run = !paths::data_dir().join("seen").exists();
     tauri::Builder::default()
@@ -265,6 +276,7 @@ fn main() {
             autostart_set,
             open_log,
             welcome_done,
+            uninstall,
             update_check,
             update_auto,
             update_install
