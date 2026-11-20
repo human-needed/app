@@ -322,7 +322,9 @@ fn main() {
             sound::start(&engine);
             tray::build(app.handle(), engine.clone())?;
             // Started by hand (not at sign-in): show the panel once, so people see where it is.
-            let background = std::env::args().any(|a| a == "--background");
+            // An update restarts it too: stay in the background then.
+            let updated = updater::just_updated(); // always read, so the marker goes
+            let background = updated || std::env::args().any(|a| a == "--background");
             if !background {
                 panel::show(app.handle());
             }

@@ -91,8 +91,10 @@ Settings files (in the data folder):
 
 From 0.9.0-beta.2 the app updates itself (Tauri updater). It checks
 `releases/latest/download/latest.json` 10 s after start and every 6 h (setting: "Check for app
-updates automatically" in the panel's Settings, on by default). A new version downloads in the background and is only installed when you click
-**Restart to update**. Offline or failed checks are logged and retried in 30 min.
+updates automatically" in the panel's Settings, on by default). A new version downloads in the background. With automatic updates on, it
+installs at the next quiet moment (checked every minute: nothing shown on this computer and the
+panel closed), and the app restarts in the background (an `updated` marker in the data folder
+keeps the panel from popping up). **Restart to update** in Settings installs it at once. Offline or failed checks are logged and retried in 30 min.
 
 Updates are signed with the project's updater key; the app refuses any package whose signature
 doesn't match the public key in `app/tauri.conf.json`. The release workflow signs with the

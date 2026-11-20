@@ -30,6 +30,9 @@ All notable changes to the HumanNeeded app. The format follows
   request templates.
 
 ### Fixed
+- Automatic updates now install themselves: a downloaded update installs when nothing is
+  showing and the panel is closed, and the app comes back in the background. Before, it waited
+  for you to click "Restart to update".
 - Windows: "Start when I sign in" is on after the first run, as intended, also when the app runs
   as an administrator. It's for your user only, and Task Manager's Startup apps switch is
   respected.

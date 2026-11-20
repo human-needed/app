@@ -3,8 +3,10 @@
 //!
 //! - Checks 10 s after start and then every 6 h when automatic checks are on (default).
 //! - A found update is downloaded in the background and its signature verified (the plugin
-//!   refuses a package that doesn't match the public key in tauri.conf). Then the panel's
-//!   Settings offer "Restart to update". Nothing restarts on its own.
+//!   refuses a package that doesn't match the public key in tauri.conf).
+//! - With automatic updates on, it then installs itself at the next quiet moment: nothing shown
+//!   (no agent working or waiting for you, no preview) and the panel closed. The app restarts in
+//!   the background, as it was. Meanwhile, Settings offer "Restart to update" to do it now.
 //! - Offline or any error: logged only; tried again in 30 min.
 //!
 //! Debug builds only (local end-to-end tests): `HN_UPDATE_URL` points the check at another
@@ -21,6 +23,19 @@ use tokio::sync::Notify;
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 const RETRY: Duration = Duration::from_secs(30 * 60);
 const FIRST: Duration = Duration::from_secs(10);
+/// How often a downloaded update looks for a quiet moment to install.
+const QUIET_POLL: Duration = Duration::from_secs(60);
+
+/// Written just before installing: the restarted app knows it was an update and stays in the
+/// background (no panel popping up).
+fn updated_marker() -> std::path::PathBuf {
+    paths::data_dir().join("updated")
+}
+
+/// True once, on the first start after an update (and forgets it).
+pub fn just_updated() -> bool {
+    std::fs::remove_file(updated_marker()).is_ok()
+}
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Status {
@@ -105,6 +120,9 @@ pub fn start(app: &AppHandle) {
                 };
                 u.status.lock().unwrap().checking = false;
                 let _ = app.emit("changed", ());
+                if u.status().ready.is_some() && u.status().auto {
+                    install_when_quiet(&app, &u).await;
+                }
             } else {
                 wait = EVERY;
             }
@@ -154,7 +172,39 @@ async fn check(app: &AppHandle, u: &Updates) -> Result<(), String> {
     Ok(())
 }
 
-/// Installs the downloaded update and restarts (the user asked for it).
+/// Waits for a quiet moment, then installs (which restarts the app). Returns if automatic
+/// updates are turned off meanwhile; "Restart to update" still works.
+async fn install_when_quiet(app: &AppHandle, u: &Updates) {
+    loop {
+        tokio::time::sleep(QUIET_POLL).await;
+        if !u.status().auto || u.pending.lock().unwrap().is_none() {
+            return;
+        }
+        if quiet(app).await {
+            log!("update: installing now (nothing shown, panel closed)");
+            let _ = install(app).await;
+            return;
+        }
+    }
+}
+
+/// Nothing is shown on this computer (idle) and the panel is closed.
+async fn quiet(app: &AppHandle) -> bool {
+    let panel_open = app
+        .get_webview_window(crate::panel::LABEL)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if panel_open {
+        return false;
+    }
+    let Some(engine) = app.try_state::<Engine>() else {
+        return false;
+    };
+    let st = engine.inner().status().await;
+    matches!(st["output"]["shown"].as_str(), None | Some("idle"))
+}
+
+/// Installs the downloaded update and restarts ("Restart to update", or a quiet moment).
 pub async fn install(app: &AppHandle) -> Result<(), String> {
     let u = app.state::<Arc<Updates>>().inner().clone();
     let Some((update, bytes)) = u.pending.lock().unwrap().take() else {
@@ -165,8 +215,10 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
     if let Some(engine) = app.try_state::<Engine>() {
         engine.inner().clone().shutdown().await;
     }
+    let _ = std::fs::write(updated_marker(), &update.version);
     // Windows: starts the installer and exits. macOS/Linux: replaces the app, then we restart.
     if let Err(e) = update.install(&bytes) {
+        let _ = std::fs::remove_file(updated_marker());
         // The engine is stopped: restart the current version rather than run without it.
         log!("update: install failed: {e}");
     }
