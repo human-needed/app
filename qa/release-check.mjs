@@ -197,7 +197,7 @@ async function installed(expect, preview) {
     const before = tail(join(DATA, "logs/app.log")).length;
     ok(JSON.parse((await raw("/v1/test/needs", { method: "POST", headers: j, body: "{}" })).text).ok === true, "Needs preview accepted");
     let seen = "";
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 150; i++) { // Needs with no limit previews up to 60 s (D-060)
       await sleep(500);
       seen = tail(join(DATA, "logs/app.log")).slice(before);
       if (/screen: off/.test(seen)) break;
