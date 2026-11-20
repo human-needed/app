@@ -90,8 +90,16 @@ fn sound(on: bool, s: &str, volume: u8) -> Option<Sound> {
     })
 }
 
+/// OPEN with the user (PM, 11-20): does "Working" glow on the screen by default? Off for now.
+pub const WORKING_GLOW_BY_DEFAULT: bool = false;
+
+/// OPEN with the user (PM, 11-20): the app owns each state's look and sound and pushes them to
+/// the puck when it connects (true), or the puck keeps its own until the user changes one in the
+/// app (false). Edits made in the app reach the puck either way.
+pub const APP_OWNS_PUCK_SETTINGS: bool = true;
+
 /// One state's defaults: colours, lights and sounds are firmware 2.0's; "working" doesn't glow
-/// on the screen and "idle" only shows on the puck (WS-DESIGN round 13).
+/// on the screen ([`WORKING_GLOW_BY_DEFAULT`]) and "idle" only shows on the puck (WS-DESIGN round 13).
 pub fn default_state(st: &str) -> StateAlerts {
     match st {
         "needs" => StateAlerts {
@@ -107,7 +115,7 @@ pub fn default_state(st: &str) -> StateAlerts {
             puck_sound: sound(true, "bright", 70),
         },
         "working" => StateAlerts {
-            screen: look(false, "spin", "#3366ff", 60, 0),
+            screen: look(WORKING_GLOW_BY_DEFAULT, "spin", "#3366ff", 60, 0),
             sound: None,
             puck: look(true, "spin", "#3366ff", 60, 0),
             puck_sound: None,

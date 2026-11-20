@@ -493,6 +493,10 @@ impl Engine {
         if imported {
             log!("puck: its settings imported into the app's");
         }
+        if !alerts::APP_OWNS_PUCK_SETTINGS {
+            self.changed();
+            return; // the puck keeps its own look until the user changes it in the app
+        }
         let (a, quiet) = {
             let s = self.shared.lock().unwrap();
             (s.alerts.clone(), s.quiet.status().active)

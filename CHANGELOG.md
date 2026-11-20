@@ -18,6 +18,9 @@ All notable changes to the HumanNeeded app. The format follows
   chimes. Turn the glow on or off from the tray menu or Settings.
 
 ### Changed
+- The panel's final design: a "Connect your agents" button opens the setup guides, one
+  "Cloud agents" switch turns on Cowork and other cloud agents, then the four states, the Puck
+  and Settings.
 - New panel, built around your agents: each agent's last signal and switch, four state cards,
   and a Puck page. Each state has a Computer tab (screen edges, sound) and a Puck tab (light,
   sound). Settings gain screen-edge options: which screens, thickness, skip full-screen apps.
