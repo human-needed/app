@@ -23,7 +23,6 @@ tokio.workspace = true
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 cpal = "0.18"
 tauri-plugin-single-instance = "2"
-tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 dirs = "5"
 

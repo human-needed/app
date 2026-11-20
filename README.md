@@ -232,10 +232,10 @@ credential, its log and its cache, and nothing else.
 
 - **Windows:** you can also use **Settings → Apps → Installed apps → HumanNeeded → Uninstall**.
   Tick **Delete the application data** to remove your settings too.
-- **macOS:** if you already dragged the app to the Trash, remove what it left:
-  `~/Library/Application Support/HumanNeeded` (settings and log),
-  `~/Library/LaunchAgents/HumanNeeded.plist` (start at login), the `com.human-needed.app` folders
-  in `~/Library/Caches` and `~/Library/WebKit`, and the **HumanNeeded** item in Keychain Access.
+- **macOS:** if you already dragged the app to the Trash, its start-at-login entry removes
+  itself at your next sign-in. To remove the rest: `~/Library/Application Support/HumanNeeded`
+  (settings and log), the `com.human-needed.app` folders in `~/Library/Caches` and
+  `~/Library/WebKit`, and the **HumanNeeded** item in Keychain Access.
 
 Your agents' plugins and hooks belong to the agents: remove the Claude Code plugin with
 `claude plugin uninstall humanneeded@humanneeded`, and our entries from `~/.codex/hooks.json`

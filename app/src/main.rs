@@ -8,6 +8,7 @@
 
 mod glow;
 mod hn_install;
+mod login;
 mod panel;
 mod sound;
 mod tray;
@@ -17,7 +18,6 @@ mod updater;
 use hn_engine::{agents, alerts, diagnostics, log, paths, quiet, Config, Engine};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 type R<T> = Result<T, String>;
 
@@ -195,14 +195,13 @@ fn open_puck_page() -> R<()> {
 const PUCK_URL: &str = "https://human-needed.com/";
 
 #[tauri::command]
-fn autostart_get(app: AppHandle) -> bool {
-    app.autolaunch().is_enabled().unwrap_or(false)
+fn autostart_get() -> bool {
+    login::is_enabled()
 }
 
 #[tauri::command]
-fn autostart_set(app: AppHandle, on: bool) -> R<()> {
-    let a = app.autolaunch();
-    if on { a.enable() } else { a.disable() }.map_err(|e| e.to_string())
+fn autostart_set(on: bool) -> R<()> {
+    login::set(on)
 }
 
 /// R-01: the first run shows the welcome screen until the user finishes it.
@@ -249,10 +248,6 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             panel::show(app)
         }))
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--background"]),
-        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -311,8 +306,14 @@ fn main() {
                 // The welcome screen (R-01) shows until the user finishes it.
                 let _ = std::fs::write(welcome_file(), "1");
                 if !dev {
-                    let _ = app.autolaunch().enable(); // starts at login by default (D-027)
+                    // Starts at sign-in by default (D-027).
+                    match login::set(true) {
+                        Ok(()) => log!("login item on"),
+                        Err(e) => log!("login item: {e}"),
+                    }
                 }
+            } else if !dev {
+                login::refresh();
             }
             updater::start(app.handle());
             panel::init(app.handle())?;

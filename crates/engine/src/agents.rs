@@ -45,6 +45,10 @@ pub struct AgentStatus {
 /// Whether an agent seems installed on this computer: its settings folder exists.
 pub fn found(id: &str) -> bool {
     let home = dirs::home_dir();
+    // Claude: Claude Code's folder, or the Claude desktop app's (its Code tab has no ~/.claude).
+    if id == "claude" && dirs::config_dir().is_some_and(|d| d.join("Claude").is_dir()) {
+        return true;
+    }
     let dir = match id {
         "claude" => crate::paths::claude_dir(),
         "codex" => std::env::var_os("CODEX_HOME")
