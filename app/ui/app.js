@@ -359,6 +359,19 @@ $('auto-update').onclick = async () => {
 $('app-restart').onclick = (e) => { e.target.disabled = true; invoke('update_install').catch(fail); };
 $('clear').onclick = async () => { await invoke('clear_sessions'); toast('All alerts cleared'); refresh(); };
 $('log').onclick = () => invoke('open_log').catch(fail);
+// For a bug report: versions, agents, agent port, puck, last log lines (no keys or ids).
+$('diag').onclick = async () => {
+  try {
+    const text = await invoke('diagnostics');
+    try { await navigator.clipboard.writeText(text); } catch (_) {
+      const t = document.createElement('textarea');
+      t.value = text; document.body.appendChild(t); t.select();
+      const ok = document.execCommand('copy'); t.remove();
+      if (!ok) throw new Error("couldn't copy");
+    }
+    toast('Diagnostics copied. Paste them into your bug report');
+  } catch (e) { fail(e); }
+};
 $('adv').addEventListener('toggle', fit);
 function resetButton() {
   $('danger').innerHTML = '<div class="btns"><button type="button" class="btn red" data-reset>Reset lights and sounds</button><button type="button" class="btn red" data-uninstall>Uninstall HumanNeeded…</button></div>';

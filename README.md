@@ -50,13 +50,40 @@ Download the latest release from **[Releases](https://github.com/human-needed/ap
 | macOS (Apple silicon and Intel) | `HumanNeeded-macos-universal.dmg`: drag HumanNeeded to Applications |
 
 > [!NOTE]
-> The builds aren't code-signed yet, so your OS warns you once:
-> - **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
-> - **macOS:** "can't be opened" → **System Settings → Privacy & Security** → **Open Anyway**,
->   then open the app again.
->
-> Every release has a `SHA256SUMS.txt` to check your download. The app then updates itself
-> (signed updates, installed when you choose to restart).
+> The app isn't code-signed yet, so Windows and macOS warn you once. See
+> [Installing an unsigned app](#installing-an-unsigned-app) below. After that, the app updates
+> itself (signed updates, installed when you choose to restart).
+
+### Installing an unsigned app
+
+HumanNeeded isn't code-signed yet, so Windows and macOS don't recognise the publisher and warn
+you once. The app is open source and built on GitHub from the public code. Same steps on the
+site: [human-needed.com/help](https://human-needed.com/help/#unsigned).
+
+**Windows**
+1. If your browser says the file isn't commonly downloaded, choose **Keep**.
+2. Open `HumanNeeded-windows-x64-setup.exe`.
+3. On the blue "Windows protected your PC" screen, click **More info**, then **Run anyway**.
+4. The installer runs for your user only; it doesn't ask for admin rights.
+
+**macOS** (Apple silicon and Intel)
+1. Open `HumanNeeded-macos-universal.dmg` and drag HumanNeeded to **Applications**.
+2. Open HumanNeeded. macOS says it can't check it for malware: click **Done** (or **OK**).
+3. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
+   HumanNeeded.
+4. Confirm with **Open Anyway** and your password. You only do this once.
+
+Only do this for files from [human-needed.com](https://human-needed.com/start/#app) or
+[GitHub Releases](https://github.com/human-needed/app/releases). To check a file, compare it with
+`SHA256SUMS.txt` on the release:
+
+```powershell
+certutil -hashfile HumanNeeded-windows-x64-setup.exe SHA256
+```
+
+```bash
+shasum -a 256 HumanNeeded-macos-universal.dmg
+```
 
 The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
 right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**.
@@ -172,7 +199,7 @@ there's nothing to show. The audio device is only opened while a chime plays.
 <details>
 <summary><b>Why does Windows or macOS warn me when I install it?</b></summary>
 
-The builds aren't code-signed yet. The steps under [Install](#install) get you past it once.
+The app isn't code-signed yet. [These steps](#installing-an-unsigned-app) get you past it once.
 Signing is planned.
 </details>
 
@@ -192,7 +219,7 @@ to the app's [event API](docs/DEVELOPMENT.md#for-agent-integrations-app-events-2
 | "Agents can't reach the app" | Another program uses port 24816. Close it or restart your computer. |
 | No sound | Check the volume and mute button in the panel, and quiet hours in Settings. |
 | Cursor never shows "needs you" | Cursor has no hook for it yet: only working and done. |
-| macOS: the app "can't be opened" | See the note under [Install](#install). |
+| Windows or macOS won't open the installer or app | See [Installing an unsigned app](#installing-an-unsigned-app). |
 
 Still stuck? [Open an issue](https://github.com/human-needed/app/issues/new/choose) with the log
 from **Settings → Advanced → Open log**.

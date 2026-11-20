@@ -1,0 +1,134 @@
+# Automated part of the release check (pm/RELEASE.md R-09). Runs on clean CI machines:
+# release assets + signatures, then on Windows and macOS: install the previous release,
+# let its updater find this one, install this one over it, check the running app, uninstall,
+# check what is left. The human part (agents, glow, sound, puck) is in qa/RELEASE-CHECK.md.
+name: release-check
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to check (default latest)
+        default: ""
+      from:
+        description: Older release to update from (default the one before)
+        default: ""
+  pull_request:
+    paths: ["qa/**", ".github/workflows/release-check.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      from: ${{ steps.t.outputs.from }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: t
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          FROM: ${{ inputs.from }}
+        run: |
+          tags=$(gh release list -R ${{ github.repository }} -L 20 --json tagName --jq '.[].tagName')
+          tag=${TAG:-$(echo "$tags" | head -1)}
+          from=${FROM:-$(echo "$tags" | grep -A1 -x "$tag" | sed -n 2p)}
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"; echo "from=$from" >> "$GITHUB_OUTPUT"
+          echo "checking $tag, updating from $from"
+      - run: node qa/release-check.mjs release ${{ steps.t.outputs.tag }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+
+  windows:
+    needs: assets
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HN_PUCK: none
+      TAG: ${{ needs.assets.outputs.tag }}
+      FROM: ${{ needs.assets.outputs.from }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the older release (silent)
+        run: |
+          gh release download "$FROM" -R ${{ github.repository }} -p HumanNeeded-windows-x64-setup.exe -O old.exe
+          ./old.exe //S
+          powershell -c "Start-Process \"$LOCALAPPDATA\HumanNeeded\humanneeded.exe\" -ArgumentList '--background'"
+      - name: First run turned on "start at login" (D-027)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs first-run
+      - name: Older release runs; its updater finds and verifies the new one
+        run: |
+          node qa/release-check.mjs installed --expect "${FROM#v}"
+          for i in $(seq 1 60); do grep -q "update: ${TAG#v} downloaded and verified" "$LOCALAPPDATA/HumanNeeded/logs/app.log" && break; sleep 2; done
+          grep "update:" "$LOCALAPPDATA/HumanNeeded/logs/app.log" || true
+          grep -q "update: ${TAG#v} downloaded and verified" "$LOCALAPPDATA/HumanNeeded/logs/app.log"
+      - name: Install the new release over it (what the updater runs)
+        run: |
+          taskkill //IM humanneeded.exe //F || true; sleep 2
+          ls "$LOCALAPPDATA/HumanNeeded" | grep -v -e '\.exe$' -e '^logs$' > kept.txt; cat kept.txt
+          gh release download "$TAG" -R ${{ github.repository }} -p HumanNeeded-windows-x64-setup.exe -O new.exe
+          ./new.exe //S
+          powershell -c "Start-Process \"$LOCALAPPDATA\HumanNeeded\humanneeded.exe\" -ArgumentList '--background'"
+      - run: node qa/release-check.mjs installed --expect "${TAG#v}" --preview
+      - name: Settings survived the update
+        run: while read -r f; do test -e "$LOCALAPPDATA/HumanNeeded/$f" || { echo "lost $f"; exit 1; }; done < kept.txt
+      - name: Uninstall (silent)
+        run: |
+          taskkill //IM humanneeded.exe //F || true; sleep 2
+          "$LOCALAPPDATA/HumanNeeded/uninstall.exe" //S; sleep 5
+      - name: Nothing left but settings (R-05)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs removed
+      - if: always()
+        run: cat "$LOCALAPPDATA/HumanNeeded/logs/app.log" 2>/dev/null | tail -60 || true
+
+  macos:
+    needs: assets
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HN_PUCK: none
+      TAG: ${{ needs.assets.outputs.tag }}
+      FROM: ${{ needs.assets.outputs.from }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the older release from its .dmg
+        run: |
+          gh release download "$FROM" -R ${{ github.repository }} -p HumanNeeded-macos-universal.dmg -O old.dmg
+          m=$(hdiutil attach -nobrowse old.dmg | tail -1 | cut -f3-); cp -R "$m/HumanNeeded.app" /Applications/; hdiutil detach "$m"
+          exe=$(defaults read /Applications/HumanNeeded.app/Contents/Info CFBundleExecutable)
+          echo "EXE=/Applications/HumanNeeded.app/Contents/MacOS/$exe" >> "$GITHUB_ENV"
+          "/Applications/HumanNeeded.app/Contents/MacOS/$exe" --background > /tmp/hn.out 2>&1 &
+      - name: First run turned on "start at login" (D-027)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs first-run
+      - name: Older release runs; its updater finds and verifies the new one
+        run: |
+          L="$HOME/Library/Application Support/HumanNeeded/logs/app.log"
+          node qa/release-check.mjs installed --expect "${FROM#v}"
+          for i in $(seq 1 60); do grep -q "update: ${TAG#v} downloaded and verified" "$L" && break; sleep 2; done
+          grep "update:" "$L" || true
+          grep -q "update: ${TAG#v} downloaded and verified" "$L"
+      - name: Replace with the new release (what the updater does)
+        run: |
+          pkill -f HumanNeeded.app || true; sleep 2
+          gh release download "$TAG" -R ${{ github.repository }} -p HumanNeeded-macos-universal.dmg -O new.dmg
+          rm -rf /Applications/HumanNeeded.app
+          m=$(hdiutil attach -nobrowse new.dmg | tail -1 | cut -f3-); cp -R "$m/HumanNeeded.app" /Applications/; hdiutil detach "$m"
+          "$EXE" --background > /tmp/hn.out 2>&1 &
+      - run: node qa/release-check.mjs installed --expect "${TAG#v}" --preview
+      - name: Uninstall (drag to Trash = delete the app)
+        run: |
+          pkill -f HumanNeeded.app || true; sleep 2
+          rm -rf /Applications/HumanNeeded.app
+      - name: Nothing left but settings (R-05)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs removed
+      - if: always()
+        run: tail -60 "$HOME/Library/Application Support/HumanNeeded/logs/app.log" 2>/dev/null; cat /tmp/hn.out 2>/dev/null | tail -20 || true
