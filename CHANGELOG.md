@@ -7,6 +7,8 @@ All notable changes to the HumanNeeded app. The format follows
 ## [Unreleased]
 
 ### Added
+- Setup guides lead with the desktop apps, click by click (Codex with screenshots), with the
+  commands folded away. **Connect your agents** and each agent's **Set up** open its guide.
 - The welcome screen knows when an agent is set up but hasn't sent anything yet, including Codex
   installed as a plugin (it reminds you to trust its hooks) and Claude's plugin added in the
   Claude app.

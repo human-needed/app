@@ -95,97 +95,127 @@ shasum -a 256 HumanNeeded-macos-universal.dmg
 ## Set up your agent
 
 Install the app first, then add the agents you use. The welcome screen shows which ones are on
-your computer, and each one shows **Connected** after its first signal. Guides on the site:
-**[human-needed.com/start](https://human-needed.com/start/)**.
+your computer, and each one shows **Connected** after its first signal.
 
-### Claude Code
+### Claude
 
-Choose one way. They all do the same thing.
+In the Claude desktop app (Code tab and Cowork):
 
-**Way 1: the Claude app**
-1. Open the Claude app and go to **Customize → Plugins**.
-2. Click **Add marketplace** and enter `human-needed/plugins`.
-3. Find **humanneeded** and click **Install**.
-4. Start a new Claude Code session.
-5. Check: send any message. When Claude finishes, the screen edges flash green and a chime plays.
+1. Open the Claude app.
+2. Click **Customize** (bottom left).
+3. Click **Plugins**.
+4. Click **Add marketplace**, type `human-needed/plugins`, click **Add**.
+5. Find **HumanNeeded** and click **Install**.
+6. For Cowork only: in the HumanNeeded panel, turn on **Cloud agents**.
+7. Check: start a new chat or task. When Claude finishes, the screen edges flash green and a chime plays.
 
-**Way 2: inside Claude Code** (terminal, desktop or VS Code)
+<details>
+<summary>Prefer commands? (Claude Code in a terminal, VS Code or the desktop Code tab)</summary>
+
+Choose one way. They do the same thing as the steps above.
+
+**Inside Claude Code**
+
 1. Type `/plugin marketplace add human-needed/plugins` and press Enter.
 2. Type `/plugin install humanneeded@humanneeded` and press Enter.
 3. Turn on updates: type `/plugin`, open **Marketplaces**, pick **humanneeded**, choose
    **Enable auto-update**.
 4. Start a new session.
-5. Check: send any message. When Claude finishes, the screen edges flash green and a chime plays.
+5. Check: send a message. When Claude finishes, the screen edges flash green and a chime plays.
 
-**Way 3: a terminal**
+**In a terminal**
+
 1. Run `claude plugin marketplace add human-needed/plugins`
 2. Run `claude plugin install humanneeded@humanneeded`
 3. Start a new Claude Code session.
-4. Check: send any message. When Claude finishes, the screen edges flash green and a chime plays.
+4. Check: send a message. When Claude finishes, the screen edges flash green and a chime plays.
+
+</details>
+
+### Codex
+
+In the Codex desktop app:
+
+1. Open the Codex app.
+2. Click **Customize** in the left bar.
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-0-customize.png" alt="Customize in the Codex left bar" width="520">
+
+3. Click **Add** (top right), then **Add a marketplace**.
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-1-add-marketplace.png" alt="Add, then Add a marketplace" width="520">
+
+4. Type `human-needed/plugins` in **Source** and click **Add marketplace**.
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-2-source.png" alt="Source: human-needed/plugins" width="520">
+
+5. Search for **HumanNeeded** and click it.
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-3-find.png" alt="HumanNeeded in the plugin list" width="520">
+
+6. Click **Install plugin**.
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-4-install.png" alt="Install plugin" width="520">
+
+7. Under **Hooks**, click **Trust all**. (Codex runs plugin hooks only after you trust them.)
+
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/codex-5-trust.png" alt="Trust all" width="520">
+
+8. Check: start a chat and send a message. When Codex finishes, the screen edges flash green and a chime plays.
 
 <details>
-<summary><b>Codex</b></summary>
+<summary>Prefer commands? (Codex CLI)</summary>
 
-Choose one way. They all do the same thing.
-
-**Way 1: a terminal**
 1. Run `codex plugin marketplace add human-needed/plugins`
 2. Run `codex plugin add humanneeded@humanneeded`
-3. Restart Codex.
-4. Trust the hooks (Codex needs this once): type `/hooks` in Codex, or open **Settings → Hooks**
-   in the Codex app, and trust the HumanNeeded hooks.
-5. Check: send any message. When Codex finishes, the screen edges flash green and a chime plays.
+3. Start Codex, type `/hooks` and trust the HumanNeeded hooks.
+4. Check: send a message. When Codex finishes, the screen edges flash green and a chime plays.
 
-**Way 2: inside Codex**
-1. Run `codex plugin marketplace add human-needed/plugins` once in a terminal.
-2. In Codex, type `/plugins`, find **HumanNeeded** and install it.
-3. Trust the hooks: type `/hooks` (or **Settings → Hooks** in the app) and trust the HumanNeeded
-   hooks.
-4. Check: send any message. When Codex finishes, the screen edges flash green and a chime plays.
+To update: `codex plugin marketplace upgrade humanneeded`, then trust the changed hooks again.
+
+</details>
 
 Set up the old way (our entries in `~/.codex/hooks.json`)? Delete those entries, or every event
 arrives twice.
-</details>
 
-<details>
-<summary><b>Cursor</b></summary>
+### Cursor
 
-Choose one way. They all do the same thing.
+In the Cursor app:
 
-**Way 1: one command.** It never overwrites a file you already have.
-1. Run the command for your computer.
+1. Open Cursor.
+2. Click **Customize** in the left sidebar.
+3. Click **Hooks**, then **Open config**.
 
-   Windows (PowerShell):
+   <img src="https://raw.githubusercontent.com/human-needed/plugins/main/docs/images/cursor-2-hooks.png" alt="Cursor Customize, Hooks, Open config" width="520">
 
-   ```powershell
-   if (!(Test-Path $HOME\.cursor\hooks.json)) { mkdir -Force $HOME\.cursor | Out-Null; curl.exe -fsSL -o $HOME\.cursor\hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.windows.json }
-   ```
-
-   macOS:
-
-   ```bash
-   [ -e ~/.cursor/hooks.json ] || { mkdir -p ~/.cursor && curl -fsSL -o ~/.cursor/hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.json; }
-   ```
-
-2. Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
-
-**Way 2: you already have `~/.cursor/hooks.json`**
-1. Open [`hooks.json`](https://github.com/human-needed/plugins/blob/main/plugins/cursor/hooks.json)
-   (Windows: [`hooks.windows.json`](https://github.com/human-needed/plugins/blob/main/plugins/cursor/hooks.windows.json)).
-2. Copy each entry under `"hooks"` into the same place in your `~/.cursor/hooks.json`. Save.
-3. Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
+4. Open our hooks file: [Windows](https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.windows.json) or [macOS](https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.json).
+   Copy all of it.
+5. If the config is empty, paste it in. If it already has hooks, add each of our entries under
+   `"hooks"` instead.
+6. Save (Ctrl+S, or Cmd+S on a Mac).
+7. Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
 
 Cursor shows working and done only (it has no "needs you" hook).
-</details>
 
 <details>
-<summary><b>Cowork and other cloud agents</b></summary>
+<summary>Prefer commands?</summary>
 
-1. In the HumanNeeded panel, turn on **Cloud agents**.
-2. In Claude, go to **Customize → Plugins → Add → Add marketplace**.
-3. Enter `human-needed/plugins`, then **Install** humanneeded.
-4. Start a Cowork task.
-5. Check: when the task finishes, the screen edges flash green and a chime plays.
+Run the command for your computer. It never overwrites a file you already have.
+
+Windows (PowerShell):
+
+```powershell
+if (!(Test-Path $HOME\.cursor\hooks.json)) { mkdir -Force $HOME\.cursor | Out-Null; curl.exe -fsSL -o $HOME\.cursor\hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.windows.json }
+```
+
+macOS:
+
+```bash
+[ -e ~/.cursor/hooks.json ] || { mkdir -p ~/.cursor && curl -fsSL -o ~/.cursor/hooks.json https://raw.githubusercontent.com/human-needed/plugins/main/plugins/cursor/hooks.json; }
+```
+
+Check: send a message in Cursor's agent. When it finishes, the screen edges flash green and a chime plays.
+
 </details>
 
 ## How it works

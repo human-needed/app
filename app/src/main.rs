@@ -179,10 +179,10 @@ async fn fw_update(app: AppHandle, engine: State<'_, Engine>) -> R<String> {
         .await
 }
 
-/// D-054: the user installs the plugins; this opens the per-agent guides (fixed URL).
+/// D-054: the user installs the plugins; this opens the guides, or one agent's (fixed URLs).
 #[tauri::command]
-fn open_setup_guide() -> R<()> {
-    open_path(std::path::Path::new(agents::SETUP_URL))
+fn open_setup_guide(agent: Option<String>) -> R<()> {
+    open_path(std::path::Path::new(agents::setup_url(agent.as_deref())))
 }
 
 /// "Don't have one? See the Puck" (fixed URL).
