@@ -14,10 +14,30 @@ under a lease, so the light always clears itself if anything goes wrong.
 | `crates/sim` | Puck simulator speaking `hn-usb/2` (TCP or in-process), incl. a fake RPI-RP2 drive for firmware updates |
 | `app` | Tauri tray app: tray / menu-bar icon and one panel (D-055); theme tokens in `app/ui/tokens.css` |
 
-## Test builds
+## Releases
 
 Releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
 `.github/workflows/release.yml` from a `v*` tag). They are **unsigned**, so the OS warns once.
+
+**Channels.** A stable version (`v1.0.0`) is published as "latest": every installed app, betas
+included, updates to it through `releases/latest/download/latest.json`. From 1.0 on, a beta
+(`v1.1.0-beta.1`) is published as a pre-release, which is never "latest", so stable users don't
+get it; testers install it by hand. Betas before 1.0 (`v0.9.0-beta.N`) stay "latest".
+
+**Release notes** come from `CHANGELOG.md` (`scripts/release_notes.py`): the version's section,
+or `[Unreleased]` for a beta without one, under a download table and the first-install steps.
+Write changelog lines for users: what they'll notice, not how it's built.
+
+**Releasing 1.0.0** (or any stable version):
+1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [1.0.0] - <date>` and add a new empty
+   `## [Unreleased]` above it.
+2. Set the version in `app/tauri.conf.json`, `Cargo.toml` and `Cargo.lock` (`cargo update -w`).
+3. Merge, then tag `v1.0.0` on main and push the tag. The workflow checks the tag matches the
+   version, builds, signs the updates and publishes.
+4. After it's published: `python packaging/make.py v1.0.0` for winget and Homebrew
+   (`packaging/README.md`).
+
+### Installing a test build
 Check a download against `SHA256SUMS.txt` (`certutil -hashfile <file> SHA256` on Windows,
 `shasum -a 256 <file>` on macOS).
 
