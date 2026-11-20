@@ -63,7 +63,6 @@ function toast(t) {
 }
 function fail(e) { toast(String(e)); }
 const label = (list, v) => (list.find(([k]) => String(k) === String(v)) || [v, String(v)])[1];
-const short = (l) => l.replace(/\s*\(.*\)$/, '');
 function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 45) return 'now';
@@ -139,14 +138,14 @@ function renderCloud() {
   $('cloud-note').hidden = !msg;
   $('cloud-note').textContent = msg;
 }
+// The same rule on every card: what this computer does, else the Puck, else Off. No durations.
 function tileText(id) {
   const a = A.states[id];
   const parts = [];
   if (a.screen.on) parts.push('Edges');
-  if (a.screen.on && id === 'done') parts.push(`${a.screen.duration} s`);
-  if (a.sound && a.sound.on) parts.push(short(label(SOUNDS, a.sound.sound)).toLowerCase());
-  if (parts.length) return parts.slice(0, 2).join(' · ');
-  return puckOn() && (a.puck.on || (a.puck_sound && a.puck_sound.on)) ? 'Puck only' : 'Off';
+  if (a.sound && a.sound.on) parts.push('Sound');
+  if (parts.length) return parts.join(' · ');
+  return a.puck.on || (a.puck_sound && a.puck_sound.on) ? 'Puck only' : 'Off';
 }
 function renderHome() {
   const pr = problem();
