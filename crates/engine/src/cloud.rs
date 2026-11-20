@@ -13,9 +13,10 @@
 //!   `install_id`; the files are read again every minute.
 //! - `install_id` (128-bit) and secret `S` (256-bit) are made when the link is turned on and kept in
 //!   the OS credential store (Windows Credential Manager, macOS Keychain); never in a file.
-//! - Connect, `hello` at once, `ping` every 4 min, reconnect with backoff 5 → 120 s (the relay
-//!   closes every 2 h). Every 3 min a probe is POSTed to `K`; seeing it come back proves the whole
-//!   path works (shown as "working" in the UI).
+//! - Connect, `hello` at once, `ping` every 9 min, reconnect with backoff 5 → 120 s (the relay
+//!   closes every 2 h). Link check (relay-api 1.1, D-069): the relay answers a good hello with
+//!   `{"t":"ok"}` ("working" in the UI), and every [`CHECK_EVERY`] the app sends `{"t":"check"}`;
+//!   no `ok` within [`OK_WAIT`] means the link is broken: it says so and reconnects.
 //! - `{"t":"state"}` → session `h` of agent `claude-cloud`, with a 120 s ttl: heartbeats every
 //!   45 s keep it; silence drops it (D-019).
 //! - `{"t":"err","e":"key_full"}`: three other computers own `K`; the UI says so. Turning the link
@@ -41,8 +42,11 @@ pub const DEFAULT_POST: &str = "https://relay.human-needed.com";
 pub const AGENT: &str = "claude-cloud";
 /// A cloud session without any message for this long is dropped (relay-api §4, D-019).
 pub const SESSION_TTL_S: u64 = 120;
-const PING_EVERY: Duration = Duration::from_secs(4 * 60);
-const PROBE_EVERY: Duration = Duration::from_secs(3 * 60);
+/// relay-api 1.1 §3.4: under API Gateway's 10 min idle timeout.
+pub const PING_EVERY: Duration = Duration::from_secs(9 * 60);
+/// relay-api 1.1 §3.5: how often the link is checked, and how long to wait for `ok`.
+pub const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
+pub const OK_WAIT: Duration = Duration::from_secs(30);
 const BACKOFF_MIN: Duration = Duration::from_secs(5);
 const BACKOFF_MAX: Duration = Duration::from_secs(120);
 /// A connection that lasted this long resets the backoff.
@@ -56,7 +60,8 @@ pub fn route_key(account_uuid: &str) -> String {
     hex(&d)[..32].to_string()
 }
 
-/// The probe's session id: fixed per key, so every PC of this account ignores it.
+/// The old self-check's session id (relay-api 1.0, still POSTed by older apps of this account):
+/// fixed per key, so it is ignored, never shown as a session.
 pub fn probe_h(k: &str) -> String {
     let d = Sha256::digest(format!("hn-probe:{k}").as_bytes());
     hex(&d)[..16].to_string()
@@ -250,6 +255,9 @@ pub struct CloudConfig {
     /// `{"enabled": bool}` (no secrets).
     pub settings_file: PathBuf,
     pub creds: Arc<dyn CredStore>,
+    /// Link check timing ([`CHECK_EVERY`], [`OK_WAIT`]; shorter in tests).
+    pub check_every: Duration,
+    pub ok_wait: Duration,
 }
 
 impl CloudConfig {
@@ -275,6 +283,8 @@ impl CloudConfig {
             creds: Arc::new(OsCreds {
                 service: var("HN_CRED_SERVICE").unwrap_or_else(|| "HumanNeeded".into()),
             }),
+            check_every: CHECK_EVERY,
+            ok_wait: OK_WAIT,
         }
     }
 }
@@ -287,9 +297,9 @@ pub enum LinkState {
     /// No Claude account found (signed out of Claude Desktop and Claude Code).
     NoAccount,
     Connecting,
-    /// Socket open, hello sent; waiting for the first probe to come back.
+    /// Socket open, hello sent; waiting for the relay's `ok`.
     Connected,
-    /// A probe came back: cloud chats will light the puck.
+    /// The relay answered `ok`: cloud chats will light the puck.
     Working,
     /// Three other computers own this account's key.
     KeyFull,
@@ -311,7 +321,7 @@ pub struct CloudStatus {
     pub state: LinkState,
     /// Plain words for the UI when something is wrong.
     pub error: Option<String>,
-    /// Last time (ms) a probe came back.
+    /// Last time (ms) the relay answered `ok`.
     pub verified_at: Option<u64>,
     /// Non-secret route key of the first account (support).
     pub key: Option<String>,
@@ -615,6 +625,15 @@ impl Cloud {
                         &*on_change,
                     );
                 }
+                End::NoAnswer => {
+                    log!("cloud: the relay didn't answer the link check, reconnecting");
+                    self.set_key(
+                        &k,
+                        LinkState::Connecting,
+                        Some("The cloud link stopped answering. Reconnecting…".into()),
+                        &*on_change,
+                    );
+                }
                 End::Lost(e) => {
                     log!("cloud: connection lost: {e}");
                     self.set_key(
@@ -657,15 +676,14 @@ impl Cloud {
         log!("cloud: connected");
         self.set_key(k, LinkState::Connected, None, on_change);
         let probe = probe_h(k);
-        let mut ping =
-            tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
-        // First probe soon after hello (the relay processes hello asynchronously).
-        let mut probe_tick = tokio::time::interval_at(
-            tokio::time::Instant::now() + Duration::from_secs(2),
-            PROBE_EVERY,
-        );
-        let mut last_probe_seen = tokio::time::Instant::now();
+        let now = tokio::time::Instant::now;
+        let mut ping = tokio::time::interval_at(now() + PING_EVERY, PING_EVERY);
+        let every = self.cfg.check_every;
+        let mut check = tokio::time::interval_at(now() + every, every);
+        // The relay answers the hello with `ok`, then each `check`. None by this time: broken.
+        let mut ok_by = Some(now() + self.cfg.ok_wait);
         loop {
+            let wait_ok = ok_by;
             tokio::select! {
                 msg = ws.next() => {
                     let text = match msg {
@@ -675,8 +693,8 @@ impl Cloud {
                         Some(Err(e)) => return End::Lost(e.to_string()),
                     };
                     match parse(&text) {
-                        Some(Relay::State { s, h }) if h == probe => {
-                            last_probe_seen = tokio::time::Instant::now();
+                        Some(Relay::Ok) => {
+                            ok_by = None;
                             let first = {
                                 let mut st = self.status.lock().unwrap();
                                 let mut first = false;
@@ -688,11 +706,12 @@ impl Cloud {
                                 first
                             };
                             if first {
-                                log!("cloud: probe came back on key {}, link works", &k[..8]);
+                                log!("cloud: the relay answered on key {}, link works", &k[..8]);
                             }
                             self.set_key(k, LinkState::Working, None, on_change);
-                            let _ = s;
                         }
+                        // An older app's self-check (relay-api 1.0): not a session.
+                        Some(Relay::State { h, .. }) if h == probe => {}
                         Some(Relay::State { s, h }) => {
                             let ev = Event {
                                 v: 1,
@@ -710,26 +729,21 @@ impl Cloud {
                         None => {}
                     }
                 }
+                _ = async { tokio::time::sleep_until(wait_ok.unwrap()).await }, if wait_ok.is_some() => {
+                    return End::NoAnswer;
+                }
                 _ = ping.tick() => {
                     if let Err(e) = ws.send(WsMsg::text(r#"{"t":"ping"}"#)).await {
                         return End::Lost(e.to_string());
                     }
                 }
-                _ = probe_tick.tick() => {
-                    // Two probes in a row didn't come back: the path is broken; say so.
-                    if last_probe_seen.elapsed() > PROBE_EVERY * 2 + Duration::from_secs(30) {
-                        self.set_key(k, LinkState::Connected, Some("Connected, but test messages aren't coming back.".into()), on_change);
+                _ = check.tick() => {
+                    if let Err(e) = ws.send(WsMsg::text(r#"{"t":"check"}"#)).await {
+                        return End::Lost(e.to_string());
                     }
-                    let url = format!("{}/v1/h/{k}", self.cfg.post_url.trim_end_matches('/'));
-                    let body = json!({"v": 1, "s": "idle", "h": probe, "ts": hn_sim::now_ms(), "hb": true});
-                    tokio::spawn(async move {
-                        let c = reqwest::Client::builder().timeout(Duration::from_secs(10)).build();
-                        if let Ok(c) = c {
-                            if let Err(e) = c.post(&url).header("content-type", "application/json").body(body.to_string()).send().await {
-                                log!("cloud: probe post failed: {e}");
-                            }
-                        }
-                    });
+                    if ok_by.is_none() {
+                        ok_by = Some(now() + self.cfg.ok_wait);
+                    }
                 }
             }
         }
@@ -738,6 +752,8 @@ impl Cloud {
 
 enum End {
     KeyFull,
+    /// No `ok` in time after hello or a `check` (relay-api 1.1 §3.5).
+    NoAnswer,
     Refused(String),
     Lost(String),
 }
@@ -748,7 +764,12 @@ fn hello(k: &str, id: &Identity) -> String {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Relay {
-    State { s: AgentState, h: String },
+    State {
+        s: AgentState,
+        h: String,
+    },
+    /// Link check answer (after hello, and to `check`).
+    Ok,
     Err(String),
 }
 
@@ -764,6 +785,7 @@ fn parse(text: &str) -> Option<Relay> {
                 h: h.to_string(),
             })
         }
+        "ok" => Some(Relay::Ok),
         "err" => Some(Relay::Err(v["e"].as_str().unwrap_or("error").to_string())),
         _ => None,
     }
@@ -772,6 +794,13 @@ fn parse(text: &str) -> Option<Relay> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_timing_follows_relay_api_1_1() {
+        assert_eq!(PING_EVERY, Duration::from_secs(9 * 60));
+        assert_eq!(CHECK_EVERY, Duration::from_secs(30 * 60));
+        assert_eq!(OK_WAIT, Duration::from_secs(30));
+    }
 
     #[test]
     fn route_key_matches_the_cloud_hook() {
@@ -853,6 +882,7 @@ mod tests {
             parse(r#"{"t":"err","e":"key_full"}"#),
             Some(Relay::Err("key_full".into()))
         );
+        assert_eq!(parse(r#"{"t":"ok"}"#), Some(Relay::Ok));
         assert_eq!(parse(r#"{"t":"state","s":"bogus","h":"ab"}"#), None);
         assert_eq!(parse(r#"{"t":"state","s":"done","h":"a/b"}"#), None);
         assert_eq!(parse("nope"), None);
