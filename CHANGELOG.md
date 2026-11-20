@@ -6,6 +6,11 @@ All notable changes to the HumanNeeded app. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The cloud link checks itself with the relay every 30 minutes instead of posting a test
+  message every 3 minutes, and pings every 9 minutes: less traffic, and a broken link is still
+  noticed and reconnected.
+
 ### Added
 - When an update is ready, the panel says so at the top: **Update now** installs it and restarts.
   It still installs by itself at a quiet moment.

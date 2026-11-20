@@ -119,8 +119,10 @@ Cowork and Claude on the web run their hooks in a cloud VM that can't reach this
 - This install's id and secret live in the OS credential store (Windows Credential Manager entry
   `cloud-link.HumanNeeded`, macOS Keychain), never in a file. Turning the link off unbinds this PC
   and deletes them.
-- Ping every 4 min; reconnect with backoff 5 → 120 s; every 3 min a probe is POSTed to `K` and must
-  come back ("Working" in the window). Up to 3 PCs per account (`key_full` is shown).
+- Ping every 9 min; reconnect with backoff 5 → 120 s. Link check (relay-api 1.1): the relay answers
+  the hello with `{"t":"ok"}` ("Working" in the window); every 30 min the app sends
+  `{"t":"check"}`, and no `ok` within 30 s means the link is broken (it says so and reconnects).
+  Up to 3 PCs per account (`key_full` is shown).
 - Dev overrides (only with `HN_DEV=1`): `HN_RELAY_WS`, `HN_RELAY_POST`, `HN_CLAUDE_JSON`, `HN_CLAUDE_DESKTOP_CONFIG`,
   `HN_CRED_SERVICE`.
 
