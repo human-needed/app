@@ -62,7 +62,7 @@ pub fn process_start(pid: u32) -> Option<u64> {
 
 #[cfg(windows)]
 mod imp {
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE, STILL_ACTIVE};
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_ALL,
     };
@@ -72,7 +72,7 @@ mod imp {
         TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     /// The pid owning the client end (local port `client_port`, remote port `server_port`).
@@ -145,10 +145,18 @@ mod imp {
         }
     }
 
+    /// `None` once the process has exited, even while another program still holds a handle to
+    /// it: Windows keeps an exited process (pid, creation time) until the last handle closes,
+    /// and Codex's helpers do hold them (FAIL-5: Codex quit, session stayed Working).
     pub fn process_start(pid: u32) -> Option<u64> {
         unsafe {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if h.is_null() {
+                return None;
+            }
+            let mut code = 0u32;
+            if GetExitCodeProcess(h, &mut code) == 0 || code != STILL_ACTIVE as u32 {
+                CloseHandle(h);
                 return None;
             }
             let zero = FILETIME {
@@ -186,6 +194,22 @@ mod tests {
         assert!(program_matches(r"C:\x\Cursor.exe", "cursor"));
         assert!(!program_matches("curl.exe", "cursor"));
         assert!(!program_matches("powershell.exe", ""));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_exited_process_has_no_start_even_while_a_handle_is_open() {
+        // `Child` keeps its process handle after `wait`, like the programs that kept Codex's
+        // exited process around.
+        let mut c = std::process::Command::new("cmd")
+            .args(["/C", "exit 1"])
+            .spawn()
+            .unwrap();
+        let pid = c.id();
+        c.wait().unwrap();
+        assert_eq!(process_start(pid), None);
+        assert!(process_start(std::process::id()).is_some());
+        drop(c);
     }
 
     #[cfg(windows)]
