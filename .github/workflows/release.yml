@@ -184,3 +184,16 @@ jobs:
             "$channel" \
             --title "$(python3 scripts/release_notes.py "$v" --title)" \
             --notes-file notes.md
+      # R-16: the winget manifests and the Homebrew cask for a stable release, from its published
+      # SHA256SUMS.txt (packaging/README.md says how to submit them). Kept as a run artifact.
+      - name: winget and Homebrew files
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 packaging/make.py "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !contains(github.ref_name, '-') }}
+        with:
+          name: packages
+          path: packaging/out/
+          if-no-files-found: error
