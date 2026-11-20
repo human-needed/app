@@ -49,8 +49,8 @@ def notes(version, changelog):
         f"| Windows 10 / 11 | [HumanNeeded-windows-x64-setup.exe]({base}/HumanNeeded-windows-x64-setup.exe) |",
         f"| Mac (Apple silicon and Intel) | [HumanNeeded-macos-universal.dmg]({base}/HumanNeeded-macos-universal.dmg) |",
         "",
-        "- **Already installed?** The app updates itself: when the update is ready, click "
-        "**Restart to update** in the panel's Settings.",
+        "- **Already installed?** Nothing to do: the app updates itself in the background, or "
+        "now from **Restart to update** in the panel's Settings.",
         "- **First install:** the app isn't code-signed yet, so Windows or macOS warns you once. "
         f"[Here's how to open it](https://github.com/{REPO}#installing-an-unsigned-app).",
         f"- **Then set up your agent:** [two commands for Claude Code](https://github.com/{REPO}#set-up-your-agent), "

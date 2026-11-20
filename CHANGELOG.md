@@ -6,61 +6,37 @@ All notable changes to the HumanNeeded app. The format follows
 
 ## [Unreleased]
 
-### Added
-- A welcome screen on first run: see the glow and chime, connect your agents (it says which
-  ones are on this computer and when each one connects), and choose to start at sign-in.
-- Settings → Advanced → Uninstall HumanNeeded: removes the app, its login item, the cloud
-  link's credential, log and cache, and your settings unless you keep them. The Windows
-  uninstaller now cleans up the same way.
-- Settings → Advanced → Copy diagnostics: versions, agents, the Puck and the last log lines,
-  ready to paste into a bug report (no keys or session ids).
-- Works without a puck: the screen edges glow on every monitor and the computer plays the
-  chimes. Turn the glow on or off from the tray menu or Settings.
+## [1.0.0] - 2026-11-20
 
-### Changed
-- The panel's final design: a "Connect your agents" button opens the setup guides, one
-  "Cloud agents" switch turns on Cowork and other cloud agents, then the four states, the Puck
-  and Settings.
-- New panel, built around your agents: each agent's last signal and switch, four state cards,
-  and a Puck page. Each state has a Computer tab (screen edges, sound) and a Puck tab (light,
-  sound). Settings gain screen-edge options: which screens, thickness, skip full-screen apps.
-- The app now owns the light and sound settings and sends them to the puck. The first time
-  your puck connects, its own settings are kept.
-- The app is free, with its source code public under the Functional Source License
-  (FSL-1.1-ALv2): any use except a competing product, and each release becomes Apache-2.0 after
-  two years.
-- New README, contributing guide (with DCO sign-off), security policy, and issue and pull
-  request templates.
+The first stable release. HumanNeeded tells you when your AI coding agent needs you or is done,
+so you can look away while it works.
 
-### Fixed
-- Automatic updates now install themselves: a downloaded update installs when nothing is
-  showing and the panel is closed, and the app comes back in the background. Before, it waited
-  for you to click "Restart to update".
-- Windows: "Start when I sign in" is on after the first run, as intended, also when the app runs
-  as an administrator. It's for your user only, and Task Manager's Startup apps switch is
-  respected.
-- macOS: if you drag the app to the Trash, its start-at-login entry removes itself at your next
-  sign-in instead of failing every time.
-- The screen-edge glow keeps each state's duration exactly, like the puck (a 3 s preview no
-  longer lasts about 15 s).
-- Dropdowns in the panel no longer close while you choose.
-- A preview on this computer lasts exactly the duration you set, like the real alert.
-- The screen-edge glow's animations (pulse, breathe, spin and the others) now play; before,
-  the glow only faded in and out. The glow now shows in screenshots and screen shares (hiding
-  it from capture is what stopped the animations on Windows).
-- The glow animates even when Windows' "Animation effects" setting is off.
-- Every light animation now takes exactly 1 second and repeats, so it finishes a whole cycle
-  at the end of any duration you pick.
-- A duration is now the light effect alone: the light fades in for 250 ms, runs that many
-  seconds, then fades out for 250 ms.
-- New 1 second and 2 second durations for the screen edges and the Puck.
-- Breathe, Blink, Heartbeat and Candle flicker now start and end each cycle at full
-  brightness, so a light fades in to full and fades out from full.
-- When one state changes straight to another, the screen edges cross-fade in 250 ms, like the
-  Puck, instead of switching at once.
+### New
+- **Screen-edge glow** on every monitor, in each state's colour and animation (Breathe, Blink,
+  Heartbeat, Candle flicker, Spin or Solid). It never takes focus or clicks.
+- **Chimes** for "Needs you" and "Done", with 15 sounds and melodies, each with its own volume.
+- **Every agent, one signal:** Claude Code, Codex, Cursor, and Claude Cowork and other cloud
+  agents (turn on **Cloud agents**). "Needs you" always wins.
+- **A welcome screen** on first run: see the glow and chime, find the agents on your computer,
+  and start the app when you sign in.
+- **Your look per state:** screen edges and sound on this computer, and light and sound on the
+  optional Puck desk light. Durations from 1 second to "until you answer".
+- **Quiet hours:** no sounds and a softer glow overnight. Mute for an hour from the tray.
+- **Updates itself:** signed updates download in the background and install when you're not
+  using it.
+- **Copy diagnostics** for bug reports, and a clean **Uninstall** (keep your settings or not),
+  both in Settings → Advanced.
+- Free, with its source code public under the Functional Source License (FSL-1.1-ALv2).
 
-### Removed
-- The Pulse light. Anything set to Pulse now uses Breathe, which looked almost the same.
+### Since the last beta
+- The panel's final design: **Connect your agents** opens the setup guides, and one **Cloud
+  agents** switch replaces the list of agents.
+- Updates now install themselves at a quiet moment instead of waiting for "Restart to update".
+- Windows: "Start when I sign in" now turns on after the first run, also when the app runs as an
+  administrator. macOS: its login item removes itself if you drag the app to the Trash.
+- The Pulse light is gone: anything set to Pulse now uses Breathe, which looked almost the same.
+- Every light runs in whole 1-second cycles that start and end at full brightness, with 250 ms
+  fades, and the screen edges cross-fade from one state to the next, like the Puck.
 
 ## [0.9.0-beta.6] - 2026-11-17
 
