@@ -1,7 +1,8 @@
 # Packages: winget and Homebrew
 
-`python packaging/make.py v1.0.0` writes the package files for a published release into
-`packaging/out/` (not committed). They point at the release's versioned installers and their
+The release workflow writes them for every stable release: download the **packages** artifact
+from its run (Actions → release). By hand: `python packaging/make.py v1.0.0` writes the package
+files for a published release into `packaging/out/` (not committed). They point at the release's versioned installers and their
 SHA-256 from `SHA256SUMS.txt`.
 
 ## winget (Windows)
