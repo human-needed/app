@@ -1,4 +1,4 @@
-# Test builds (unsigned, D-039): Windows NSIS installer and macOS universal .dmg, plus the
+# Releases (unsigned, D-039): Windows NSIS installer and macOS universal .dmg, plus the
 # auto-update files: each updater bundle with its .sig (signed with the updater key in the
 # TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] secrets) and latest.json, which installed apps poll at
 # releases/latest/download/latest.json.
@@ -136,6 +136,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # For CHANGELOG.md and scripts/release_notes.py (the release notes).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: installer-*
@@ -165,12 +167,20 @@ jobs:
         run: |
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      # Channels (R-03): a stable version (1.0.0) is "latest", so every installed app, betas
+      # included, updates to it (releases/latest/download/latest.json). From 1.0 on, a beta
+      # (1.1.0-beta.1) is a pre-release: never "latest", so stable users don't get it. Betas
+      # before 1.0 (0.9.0-beta.N) stay "latest", as the test builds always were.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [[ "$v" == *-* && "$v" != 0.* ]]; then channel=--prerelease; else channel=--latest; fi
+          python3 scripts/release_notes.py "$v" > notes.md
+          cat notes.md
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --latest \
-            --title "HumanNeeded $GITHUB_REF_NAME (test build)" \
-            --notes "Unsigned test build. Windows: run the setup .exe. macOS (Apple silicon and Intel): open the .dmg. See 'Test builds' in the README for the SmartScreen / Gatekeeper steps. Check downloads against SHA256SUMS.txt."
+            "$channel" \
+            --title "$(python3 scripts/release_notes.py "$v" --title)" \
+            --notes-file notes.md
