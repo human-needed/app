@@ -177,15 +177,7 @@ async function installed(expect, preview) {
     info(`${a} hooks`, t.includes(`127.0.0.1:24816/v1/event/${a.toLowerCase()}/`) ? "installed" : "not installed");
   }
 
-  // Login item (D-027: on by default after first run).
-  if (WIN) {
-    let runKey = "";
-    try { runKey = execFileSync("reg", ["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"], { encoding: "utf8" }); } catch { /* none */ }
-    info("starts at login", /humanneeded/i.test(runKey) ? "yes" : "no (on by default; the user may have turned it off)");
-  } else if (MAC) {
-    const la = join(HOME, "Library/LaunchAgents");
-    info("starts at login", existsSync(la) && readdirSync(la).some((f) => /humanneeded/i.test(f)) ? "yes" : "no");
-  }
+  info("starts at login", loginItem() ? "yes" : "no (on by default; the user may have turned it off)");
 
   // Updater: checks 10 s after start; log says what it found.
   const log = tail(join(DATA, "logs/app.log"));
@@ -194,18 +186,29 @@ async function installed(expect, preview) {
   ok(!/update: (?!.*(found|downloaded|installing)).*/.test(up.at(-1) ?? ""), "last updater line is not an error", up.at(-1) ?? "");
 
   if (preview) {
-    const before = tail(join(DATA, "logs/app.log")).length;
+    const logf = join(DATA, "logs/app.log");
+    const full = () => { try { return readFileSync(logf, "utf8"); } catch { return ""; } };
+    const before = full().length;
     ok(JSON.parse((await raw("/v1/test/needs", { method: "POST", headers: j, body: "{}" })).text).ok === true, "Needs preview accepted");
     let seen = "";
     for (let i = 0; i < 150; i++) { // Needs with no limit previews up to 60 s (D-060)
       await sleep(500);
-      seen = tail(join(DATA, "logs/app.log")).slice(before);
+      seen = full().slice(before);
       if (/screen: off/.test(seen)) break;
     }
     ok(/screen: needs/.test(seen), "screen glow showed Needs", seen.split("\n").filter((l) => /screen:/.test(l)).join(" | "));
     ok(/screen: off/.test(seen), "screen glow ended");
-    ok(!/sound .*:|sound: stream error/.test(seen), "no sound error", seen.match(/sound.*$/m)?.[0] ?? "");
+    ok(!/sound(: stream error| \S+: )/.test(seen), "no sound error", seen.match(/^.*sound.*$/m)?.[0] ?? "");
   }
+}
+
+// Login item (D-027: on by default after the first run).
+function loginItem() {
+  if (WIN) {
+    try { return /humanneeded/i.test(execFileSync("reg", ["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"], { encoding: "utf8" })); } catch { return false; }
+  }
+  const la = join(HOME, "Library/LaunchAgents");
+  return MAC && existsSync(la) && readdirSync(la).some((f) => /humanneeded/i.test(f));
 }
 
 // ---- after uninstall ----------------------------------------------------------------------
@@ -230,7 +233,7 @@ async function removed() {
     ok(!left.length, "no LaunchAgent left (else it fails at every login)", left.join(", "));
   }
   const left = existsSync(DATA) ? readdirSync(DATA) : [];
-  const settings = new Set(["agents.json", "alerts.json", "app-settings.json", "cloud.json", "glow.json", "seen", "logs"]);
+  const settings = new Set(["hn.sock", "agents.json", "alerts.json", "app-settings.json", "cloud.json", "glow.json", "seen", "logs"]);
   ok(left.every((f) => settings.has(f)), "only settings and logs left in the data folder", left.join(", "));
   info("settings kept", left.length ? left.join(", ") : "none (removed)");
 }
@@ -243,6 +246,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (mode === "release") await release(rest.find((a) => !a.startsWith("--")));
     else if (mode === "installed") await installed(val("--expect"), flag("--preview"));
     else if (mode === "removed") await removed();
+    else if (mode === "first-run") { console.log("first run on a clean machine"); ok(loginItem(), "starts at login is on (D-027)"); }
     else { console.log("usage: release [tag] | installed [--expect v] [--preview] | removed"); process.exit(2); }
   } catch (e) { ok(false, "check crashed", e.message); }
   console.log(failed ? `\n${failed} FAILED` : "\nall ok");

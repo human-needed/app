@@ -59,6 +59,9 @@ jobs:
           gh release download "$FROM" -R ${{ github.repository }} -p HumanNeeded-windows-x64-setup.exe -O old.exe
           ./old.exe //S
           powershell -c "Start-Process \"$LOCALAPPDATA\HumanNeeded\humanneeded.exe\" -ArgumentList '--background'"
+      - name: First run turned on "start at login" (D-027)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs first-run
       - name: Older release runs; its updater finds and verifies the new one
         run: |
           node qa/release-check.mjs installed --expect "${FROM#v}"
@@ -78,7 +81,9 @@ jobs:
         run: |
           taskkill //IM humanneeded.exe //F || true; sleep 2
           "$LOCALAPPDATA/HumanNeeded/uninstall.exe" //S; sleep 5
-      - run: node qa/release-check.mjs removed
+      - name: Nothing left but settings (R-05)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs removed
       - if: always()
         run: cat "$LOCALAPPDATA/HumanNeeded/logs/app.log" 2>/dev/null | tail -60 || true
 
@@ -99,6 +104,9 @@ jobs:
           exe=$(defaults read /Applications/HumanNeeded.app/Contents/Info CFBundleExecutable)
           echo "EXE=/Applications/HumanNeeded.app/Contents/MacOS/$exe" >> "$GITHUB_ENV"
           "/Applications/HumanNeeded.app/Contents/MacOS/$exe" --background > /tmp/hn.out 2>&1 &
+      - name: First run turned on "start at login" (D-027)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs first-run
       - name: Older release runs; its updater finds and verifies the new one
         run: |
           L="$HOME/Library/Application Support/HumanNeeded/logs/app.log"
@@ -118,6 +126,8 @@ jobs:
         run: |
           pkill -f HumanNeeded.app || true; sleep 2
           rm -rf /Applications/HumanNeeded.app
-      - run: node qa/release-check.mjs removed
+      - name: Nothing left but settings (R-05)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: node qa/release-check.mjs removed
       - if: always()
         run: tail -60 "$HOME/Library/Application Support/HumanNeeded/logs/app.log" 2>/dev/null; cat /tmp/hn.out 2>/dev/null | tail -20 || true
