@@ -12,15 +12,16 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-/// Where the setup guides live: the README on GitHub, the product page for now (PM, 11-20).
-pub const SETUP_URL: &str = "https://github.com/human-needed/app#set-up-your-agent";
+/// Where the setup guides live: the website is their only home (D-070).
+pub const SETUP_URL: &str = "https://human-needed.com/start/";
 
-/// One agent's guide (its section of the README), or all of them.
+/// One agent's guide, or all of them.
 pub fn setup_url(agent: Option<&str>) -> &'static str {
     match agent {
-        Some("claude") => "https://github.com/human-needed/app#claude",
-        Some("codex") => "https://github.com/human-needed/app#codex",
-        Some("cursor") => "https://github.com/human-needed/app#cursor",
+        Some("claude") => "https://human-needed.com/start/claude/",
+        Some("codex") => "https://human-needed.com/start/codex/",
+        Some("cursor") => "https://human-needed.com/start/cursor/",
+        Some("cowork") | Some("claude-cloud") => "https://human-needed.com/start/cowork/",
         _ => SETUP_URL,
     }
 }
@@ -48,7 +49,7 @@ pub struct AgentStatus {
     pub last_seen: Option<u64>,
     /// Lights the puck (switch, D-055).
     pub enabled: bool,
-    /// The agent seems installed here (its settings folder exists): the welcome screen says so.
+    /// The agent seems installed here (its settings folder exists).
     pub found: bool,
     /// Our plugin or hooks are set up in it (it may not have sent anything yet).
     pub installed: bool,
@@ -295,7 +296,11 @@ mod tests {
     fn each_agent_has_its_guide() {
         assert_eq!(
             setup_url(Some("codex")),
-            "https://github.com/human-needed/app#codex"
+            "https://human-needed.com/start/codex/"
+        );
+        assert_eq!(
+            setup_url(Some("cowork")),
+            "https://human-needed.com/start/cowork/"
         );
         assert_eq!(setup_url(None), SETUP_URL);
         assert_eq!(setup_url(Some("../evil")), SETUP_URL);

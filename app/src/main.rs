@@ -33,7 +33,6 @@ async fn status(
     let mut st = engine.status().await;
     st["update"] = serde_json::to_value(updates.status()).unwrap_or_default();
     st["glow"] = serde_json::to_value(glow::options(&app)).unwrap_or_default();
-    st["welcome"] = welcome_file().exists().into();
     Ok(st)
 }
 
@@ -208,17 +207,6 @@ fn autostart_set(on: bool) -> R<()> {
     login::set(on)
 }
 
-/// R-01: the first run shows the welcome screen until the user finishes it.
-fn welcome_file() -> std::path::PathBuf {
-    paths::data_dir().join("welcome-pending")
-}
-
-#[tauri::command]
-fn welcome_done() {
-    let _ = std::fs::remove_file(welcome_file());
-    log!("welcome: done");
-}
-
 /// Settings → Advanced → Uninstall (R-05).
 #[tauri::command]
 fn uninstall(app: AppHandle, keep_settings: bool) -> R<()> {
@@ -274,7 +262,6 @@ fn main() {
             autostart_get,
             autostart_set,
             open_log,
-            welcome_done,
             uninstall,
             update_check,
             update_auto,
@@ -304,11 +291,11 @@ fn main() {
                     }
                 });
             }
+            // The first-run welcome screen is gone (user, 11-21): forget its old flag.
+            let _ = std::fs::remove_file(paths::data_dir().join("welcome-pending"));
             if first_run {
                 let _ = std::fs::create_dir_all(paths::data_dir());
                 let _ = std::fs::write(paths::data_dir().join("seen"), "1");
-                // The welcome screen (R-01) shows until the user finishes it.
-                let _ = std::fs::write(welcome_file(), "1");
                 if !dev {
                     // Starts at sign-in by default (D-027).
                     match login::set(true) {

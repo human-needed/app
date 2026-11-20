@@ -53,7 +53,7 @@ def notes(version, changelog):
         "**Restart to update** in the panel's Settings.",
         "- **First install:** the app isn't code-signed yet, so Windows or macOS warns you once. "
         f"[Here's how to open it](https://github.com/{REPO}#installing-an-unsigned-app).",
-        f"- **Then set up your agent:** [Claude Code, Codex, Cursor or Cowork](https://github.com/{REPO}#set-up-your-agent).",
+        f"- **Then set up your agent:** [Claude Code, Codex, Cursor or Cowork](https://human-needed.com/start/).",
         "",
     ]
     new = section(changelog, version)
