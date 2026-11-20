@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Claude Code keeps `~/.claude/sessions/<pid>.json` per running local chat (undocumented, D-022):
 //! `{"pid":…,"sessionId":"…","procStart":"…","status":"busy"|"idle","statusUpdatedAt":<ms>,…}`.
 //! Pressing Stop flips `status` to `idle` with no hook; the file is removed when the chat ends.

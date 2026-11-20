@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! D-059: this computer always shows the state (glow) and plays the sounds as the app's alert
 //! settings say; a puck gets its part of those settings pushed.
 

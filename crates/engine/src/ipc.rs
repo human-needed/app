@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Local IPC server for `hn` (app-events §1). One JSON line per connection; requests get one
 //! JSON line back. Only the current user can reach it (per-user pipe name / socket in a 0700
 //! folder; remote pipe clients rejected).

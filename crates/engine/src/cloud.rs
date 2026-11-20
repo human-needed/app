@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Cloud link, PC side of `hn-relay/1` (relay-api §2, §3; D-021, D-023, D-030).
 //!
 //! Cloud chats (Cowork, Claude on the web) run their hooks in a cloud VM that can't reach this

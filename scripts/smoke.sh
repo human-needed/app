@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: FSL-1.1-ALv2
 # Startup smoke run: launches the built app with no puck and its own data folder, then checks
 # that the main thread runs ("ui: ready" in app.log) and the hub answers. Catches a hang at
 # startup (0.9.0-beta.7). Usage: scripts/smoke.sh <path to humanneeded binary>

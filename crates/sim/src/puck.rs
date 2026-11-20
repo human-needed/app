@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The puck's behaviour per `hn-usb/2`, as a pure state machine (time is passed in, ms).
 
 use crate::machine::{Durations, Machine, St};

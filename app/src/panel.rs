@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The tray panel (D-055): the app's only window. A small frameless window that opens next to the
 //! tray / menu-bar icon and hides when it loses focus (click elsewhere).
 

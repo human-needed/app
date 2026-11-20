@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: FSL-1.1-ALv2 */
 /* Tray panel (D-055), built on tokens.css. */
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--hn-ground); color: var(--hn-text); }

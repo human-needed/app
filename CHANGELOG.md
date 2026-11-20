@@ -23,7 +23,9 @@ All notable changes to the HumanNeeded app. The format follows
   sound). Settings gain screen-edge options: which screens, thickness, skip full-screen apps.
 - The app now owns the light and sound settings and sends them to the puck. The first time
   your puck connects, its own settings are kept.
-- The app is free and open source under the GNU GPL v3.0 or later.
+- The app is free, with its source code public under the Functional Source License
+  (FSL-1.1-ALv2): any use except a competing product, and each release becomes Apache-2.0 after
+  two years.
 - New README, contributing guide (with DCO sign-off), security policy, and issue and pull
   request templates.
 

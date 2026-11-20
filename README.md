@@ -8,16 +8,16 @@
 
 [![CI](https://github.com/human-needed/app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/human-needed/app/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/human-needed/app?include_prereleases&label=release)](https://github.com/human-needed/app/releases)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE)
 ![Platforms: Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 
 [Website](https://human-needed.com) · [Download](https://github.com/human-needed/app/releases/latest) · [Setup guides](https://human-needed.com/start/) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
 
 </div>
 
-HumanNeeded is a free, open-source tray app for Windows and macOS. It listens to your coding
-agents and tells you when one is **working**, **needs you**, or is **done**: the edges of your
-screen glow in the state's colour and a short chime plays. Start a task, look away, and come
+HumanNeeded is a free tray app for Windows and macOS, with its source code public. It listens
+to your coding agents and tells you when one is **working**, **needs you**, or is **done**: the
+edges of your screen glow in the state's colour and a short chime plays. Start a task, look away, and come
 back when it's your turn.
 
 ## Features
@@ -57,8 +57,8 @@ Download the latest release from **[Releases](https://github.com/human-needed/ap
 ### Installing an unsigned app
 
 HumanNeeded isn't code-signed yet, so Windows and macOS don't recognise the publisher and warn
-you once. The app is open source and built on GitHub from the public code. Same steps on the
-site: [human-needed.com/help](https://human-needed.com/help/#unsigned).
+you once. Its code is public, and each release is built on GitHub from that code. Same steps on
+the site: [human-needed.com/help](https://human-needed.com/help/#unsigned).
 
 **Windows**
 1. If your browser says the file isn't commonly downloaded, choose **Keep**.
@@ -269,8 +269,10 @@ commits need a DCO sign-off (`git commit -s`). Security problems go privately th
 
 ## License
 
-HumanNeeded is free software: you can redistribute it and/or modify it under the terms of the
-[GNU General Public License v3.0 or later](LICENSE). The bundled fonts (Geist, IBM Plex Mono) are
-under the SIL Open Font License 1.1 (`app/ui/fonts`).
+HumanNeeded is source-available under the [Functional Source License, Version 1.1, ALv2 Future
+License](LICENSE) (FSL-1.1-ALv2). You may use, copy, change and share it for any purpose except a
+competing product or service. Two years after each release, that release's code also becomes
+available under the Apache License 2.0. The bundled fonts (Geist, IBM Plex Mono) are under the
+SIL Open Font License 1.1 (`app/ui/fonts`).
 
-© 2026 HumanNeeded contributors · [human-needed.com](https://human-needed.com)
+© 2026 HumanNeeded · [human-needed.com](https://human-needed.com)

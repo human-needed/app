@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! What the ring shows and when that changes: a line-for-line port of the firmware's `Engine`
 //! (`firmware/humanneeded/core.cpp`, hn-usb/2 §3). The simulator and the app's own output
 //! ("this computer": screen edges, sound) both run it, so they behave exactly like a puck:

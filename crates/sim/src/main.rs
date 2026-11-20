@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `hn-sim --listen 127.0.0.1:47800 [--fw 2.0.0] [--uf2-dir <folder>]`
 //! Prints one line per change of what the ring shows.
 

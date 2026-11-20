@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Screen-edge glow (D-059): the screen edges light up in the state's colour and animation, as
 //! each state's "Screen edges" settings say. Works with or without a puck.
 //!

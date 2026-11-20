@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! `hn-events/1` (pm/contracts/app-events.md §2): one JSON line per message on the local IPC.
 //!
 //! Event:   `{"v":1,"agent":"claude","session":"…","state":"working","ts":1731500000000,"ttl":60}`

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 // HumanNeeded tray panel (D-059 app-first, WS-DESIGN rounds 14–16). Talks only to the app (Tauri
 // commands). The app owns the alert settings: per state, the computer's screen edges and sound,
 // and the puck's light and sound (pushed to the puck when it connects).

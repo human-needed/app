@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Cloud link against a local fake relay (relay-api §3): a WebSocket server that checks the
 //! hello and forwards what is POSTed to `/v1/h/<K>` to the sockets that said hello with `K`, like
 //! the real relay.

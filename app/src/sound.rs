@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! Sounds from the computer's speakers (D-059), while no puck is connected. The engine says what
 //! to play ([`Engine::sounds`]); [`hn_engine::tones`] renders it like the puck's firmware does.
 //! The audio device is only opened while a sound plays, so it isn't kept awake.

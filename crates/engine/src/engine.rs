@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The app's core loop: `hn` events → session table → snapshot to the puck under a lease.
 
 use crate::ipc::{self, Incoming};

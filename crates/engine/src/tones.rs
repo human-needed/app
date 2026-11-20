@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: FSL-1.1-ALv2
 //! The puck's sounds, rendered for the computer's speakers (D-059). A port of the firmware's
 //! `audio.cpp` (2.0.x): the same notes, decay curve, "rich" voice and mix, so a sound is the
 //! same tune on the puck and on the PC.
