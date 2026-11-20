@@ -485,6 +485,10 @@ function welcomeRow(a) {
   if (s.state === 'connected') {
     line = '<i style="--c:var(--hn-ok)"></i>Connected';
     right = '';
+  } else if (s.installed) {
+    // Set up, no signal yet. Codex runs our hooks only once the user trusts them.
+    line = a.id === 'codex' ? 'Set up · trust its hooks: /hooks in Codex' : 'Set up · start a new session';
+    right = '';
   } else if (s.found) line = 'Found on this computer';
   else { line = 'Not found on this computer'; off = true; right = '<button type="button" class="btn setup" data-guide>Set up</button>'; }
   return `<div class="agrow${off ? ' off' : ''}"><span class="agentmark">${LOGO[a.logo]}</span><span class="gr">${esc(a.name)}<small>${line}</small></span>${right}</div>`;

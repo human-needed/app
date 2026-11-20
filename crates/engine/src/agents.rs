@@ -40,24 +40,117 @@ pub struct AgentStatus {
     pub enabled: bool,
     /// The agent seems installed here (its settings folder exists): the welcome screen says so.
     pub found: bool,
+    /// Our plugin or hooks are set up in it (it may not have sent anything yet).
+    pub installed: bool,
 }
 
-/// Whether an agent seems installed on this computer: its settings folder exists.
+/// The agents' settings folders (integrations/manifest.json `detect`).
+fn codex_dir() -> Option<PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".codex")))
+}
+
+/// Whether an agent seems installed on this computer: its settings folder exists, or its command
+/// is on PATH (integrations/manifest.json `detect`).
 pub fn found(id: &str) -> bool {
     let home = dirs::home_dir();
     // Claude: Claude Code's folder, or the Claude desktop app's (its Code tab has no ~/.claude).
     if id == "claude" && dirs::config_dir().is_some_and(|d| d.join("Claude").is_dir()) {
         return true;
     }
-    let dir = match id {
-        "claude" => crate::paths::claude_dir(),
-        "codex" => std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.map(|h| h.join(".codex"))),
-        "cursor" => home.map(|h| h.join(".cursor")),
-        _ => None,
+    let (dir, commands): (Option<PathBuf>, &[&str]) = match id {
+        "claude" => (crate::paths::claude_dir(), &["claude"]),
+        "codex" => (codex_dir(), &["codex"]),
+        "cursor" => (home.map(|h| h.join(".cursor")), &["cursor", "cursor-agent"]),
+        _ => (None, &[]),
     };
-    dir.is_some_and(|d| d.is_dir())
+    dir.is_some_and(|d| d.is_dir()) || commands.iter().any(|c| on_path(c))
+}
+
+fn on_path(command: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let names: Vec<String> = if cfg!(windows) {
+        ["exe", "cmd", "bat"]
+            .iter()
+            .map(|x| format!("{command}.{x}"))
+            .collect()
+    } else {
+        vec![command.to_string()]
+    };
+    std::env::split_paths(&path).any(|d| names.iter().any(|n| d.join(n).is_file()))
+}
+
+/// Our marker in an agent's hooks.json (integrations/manifest.json `installed.marker`).
+fn hook_marker(id: &str) -> String {
+    format!("127.0.0.1:24816/v1/event/{id}/")
+}
+
+/// Whether our plugin or hooks are set up in an agent (integrations/manifest.json `installed`):
+/// - Claude Code: `enabledPlugins["humanneeded@humanneeded"]` in `~/.claude/settings.json`;
+/// - Codex: the plugin's table in `~/.codex/config.toml` (2.0.0+), or our entries in the older
+///   `~/.codex/hooks.json`;
+/// - Cursor: our entries in `~/.cursor/hooks.json`.
+pub fn installed(id: &str) -> bool {
+    let read = |p: Option<PathBuf>| p.and_then(|p| std::fs::read_to_string(p).ok());
+    match id {
+        "claude" => {
+            read(crate::paths::claude_dir().map(|d| d.join("settings.json")))
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .is_some_and(|v| v["enabledPlugins"]["humanneeded@humanneeded"] == true)
+                || dirs::config_dir().is_some_and(|d| in_claude_desktop(&d.join("Claude/rpm")))
+        }
+        "codex" => {
+            read(codex_dir().map(|d| d.join("config.toml"))).is_some_and(|t| codex_plugin_in(&t))
+                || read(codex_dir().map(|d| d.join("hooks.json")))
+                    .is_some_and(|t| t.contains(&hook_marker("codex")))
+        }
+        "cursor" => read(dirs::home_dir().map(|h| h.join(".cursor/hooks.json")))
+            .is_some_and(|t| t.contains(&hook_marker("cursor"))),
+        _ => false,
+    }
+}
+
+/// The Claude desktop app keeps the plugins added in Customize → Plugins under
+/// `<config>/Claude/rpm/<account>/<org>/plugin_<id>/` (Windows `%APPDATA%`, macOS
+/// `~/Library/Application Support`); ours has `skills/humanneeded`.
+fn in_claude_desktop(rpm: &std::path::Path) -> bool {
+    let dirs = |p: &std::path::Path| -> Vec<PathBuf> {
+        std::fs::read_dir(p)
+            .map(|r| {
+                r.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    dirs(rpm)
+        .iter()
+        .flat_map(|a| dirs(a))
+        .flat_map(|o| dirs(&o))
+        .any(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("plugin_"))
+                && p.join("skills/humanneeded").is_dir()
+        })
+}
+
+/// `[plugins."humanneeded@humanneeded"]` in Codex's config.toml (spaces allowed, as TOML does).
+fn codex_plugin_in(toml: &str) -> bool {
+    toml.lines().any(|l| {
+        let l: String = l
+            .split('#')
+            .next()
+            .unwrap_or("")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        l == r#"[plugins."humanneeded@humanneeded"]"#
+            || l.starts_with(r#"[plugins."humanneeded@humanneeded"."#)
+    })
 }
 
 pub struct Seen {
@@ -177,6 +270,7 @@ impl Seen {
                     last_seen,
                     enabled: self.enabled(id),
                     found: found(id),
+                    installed: installed(id),
                 }
             })
             .collect()
@@ -186,6 +280,33 @@ impl Seen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_plugin_in_the_claude_desktop_app() {
+        let t = tempfile::tempdir().unwrap();
+        let rpm = t.path().join("rpm");
+        std::fs::create_dir_all(rpm.join("81c9fbe3/77f97f11/plugin_01ABC/skills/other")).unwrap();
+        assert!(!in_claude_desktop(&rpm));
+        std::fs::create_dir_all(rpm.join("81c9fbe3/77f97f11/plugin_01XYZ/skills/humanneeded"))
+            .unwrap();
+        assert!(in_claude_desktop(&rpm));
+        assert!(!in_claude_desktop(&t.path().join("missing")));
+    }
+
+    #[test]
+    fn finds_the_codex_plugin_in_config_toml() {
+        assert!(codex_plugin_in(
+            "model = \"o3\"\n\n[plugins.\"humanneeded@humanneeded\"]\nenabled = true\n"
+        ));
+        assert!(codex_plugin_in("[ plugins . \"humanneeded@humanneeded\" ]"));
+        assert!(codex_plugin_in(
+            "[plugins.\"humanneeded@humanneeded\".hooks]"
+        ));
+        assert!(!codex_plugin_in(
+            "# [plugins.\"humanneeded@humanneeded\"]\n[plugins.\"other@x\"]"
+        ));
+        assert!(!codex_plugin_in(""));
+    }
 
     fn state(s: &Seen, id: &str, now: u64) -> &'static str {
         s.list(now).into_iter().find(|a| a.id == id).unwrap().state

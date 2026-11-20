@@ -7,6 +7,9 @@ All notable changes to the HumanNeeded app. The format follows
 ## [Unreleased]
 
 ### Added
+- The welcome screen knows when an agent is set up but hasn't sent anything yet, including Codex
+  installed as a plugin (it reminds you to trust its hooks) and Claude's plugin added in the
+  Claude app.
 - When an update is ready, the panel says so at the top: **Update now** installs it and restarts.
   It still installs by itself at a quiet moment.
 - Every state card says the same kind of thing: "Edges", "Sound", "Edges · Sound", "Puck only"
