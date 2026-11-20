@@ -53,7 +53,8 @@ Free · Windows 10 and 11, macOS (Apple silicon and Intel) · No account · Runs
 
 The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
 right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**. It updates itself:
-new versions are checked and signed, and installed when you choose to restart.
+a new version downloads in the background (signed, so it can't be tampered with) and installs
+when you're not using it, or straight away from **Restart to update** in Settings.
 
 <details>
 <summary><b>Installing an unsigned app</b> (the Windows or macOS warning)</summary>
