@@ -160,6 +160,10 @@ function renderHome() {
     $('fix-btn').textContent = pr.btn || '';
   }
   renderCloud();
+  // A downloaded update: one click installs it and restarts (as Settings' "Restart to update").
+  const ready = st.update && st.update.ready;
+  $('upd').hidden = !ready;
+  $('upd-v').textContent = ready || '';
   const m = (st.output && st.output.status && st.output.status.muted) || 'off';
   const q = st.quiet || {};
   let note = '';
@@ -338,6 +342,11 @@ $('auto-update').onclick = async () => {
   refresh();
 };
 $('app-restart').onclick = (e) => { e.target.disabled = true; invoke('update_install').catch(fail); };
+$('upd-go').onclick = (e) => {
+  e.target.disabled = true;
+  e.target.textContent = 'Updating…';
+  invoke('update_install').catch((err) => { e.target.disabled = false; e.target.textContent = 'Update now'; fail(err); });
+};
 $('clear').onclick = async () => { await invoke('clear_sessions'); toast('All alerts cleared'); refresh(); };
 $('log').onclick = () => invoke('open_log').catch(fail);
 // For a bug report: versions, agents, agent port, puck, last log lines (no keys or ids).

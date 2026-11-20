@@ -107,6 +107,10 @@ select.sel { width: 100%; font: 13px var(--hn-font); color: var(--hn-text); back
 .btn.connect svg.i { width: 13px; height: 13px; color: var(--hn-muted); }
 .cloudrow { padding-top: 10px; padding-bottom: 10px; }
 .navrow.hr { border-top: var(--hn-hairline); }
+/* "Update ready · Update now": only while a downloaded update waits. */
+.upd { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: var(--hn-hairline); background: var(--hn-raised); font-size: 13px; }
+.upd .gr { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.upd small { color: var(--hn-muted); }
 .agentmark svg.i { width: 15px; height: 15px; color: var(--hn-text); }
 .cloudrow .gr small { white-space: normal; }
 .tip { position: relative; display: inline-flex; vertical-align: -2px; color: var(--hn-faint); cursor: help; outline: none; }
