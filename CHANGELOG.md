@@ -9,6 +9,8 @@ All notable changes to the HumanNeeded app. The format follows
 ### Added
 - A welcome screen on first run: see the glow and chime, connect your agents (it says which
   ones are on this computer and when each one connects), and choose to start at sign-in.
+- Settings → Advanced → Copy diagnostics: versions, agents, the Puck and the last log lines,
+  ready to paste into a bug report (no keys or session ids).
 - Works without a puck: the screen edges glow on every monitor and the computer plays the
   chimes. Turn the glow on or off from the tray menu or Settings.
 

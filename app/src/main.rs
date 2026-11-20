@@ -13,7 +13,7 @@ mod sound;
 mod tray;
 mod updater;
 
-use hn_engine::{agents, alerts, log, paths, quiet, Config, Engine};
+use hn_engine::{agents, alerts, diagnostics, log, paths, quiet, Config, Engine};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -34,6 +34,27 @@ async fn status(
     st["glow"] = serde_json::to_value(glow::options(&app)).unwrap_or_default();
     st["welcome"] = welcome_file().exists().into();
     Ok(st)
+}
+
+/// "Copy diagnostics" (Settings → Advanced): a summary to paste into a bug report.
+#[tauri::command]
+async fn diagnostics(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    updates: State<'_, std::sync::Arc<updater::Updates>>,
+) -> R<String> {
+    let st = status(app, engine, updates).await?;
+    let home = dirs_home();
+    Ok(diagnostics::report(
+        &st,
+        &diagnostics::os(),
+        &diagnostics::log_tail(),
+        home.as_deref(),
+    ))
+}
+
+fn dirs_home() -> Option<String> {
+    std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).ok()
 }
 
 /// What this glow window shows now (the glow page asks when it loads). Async, so it never
@@ -224,6 +245,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status,
+            diagnostics,
             glow_spec,
             glow_set,
             alerts_get,
