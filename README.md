@@ -1,24 +1,26 @@
 <div align="center">
 
-<img src="docs/images/hero.png" alt="HumanNeeded: the screen edges glow orange while Claude Code waits for permission, next to the HumanNeeded tray panel" width="800">
+<img src="docs/images/hero.gif" alt="An agent works, then needs you: the screen edges glow orange and a chime plays. Then it's done: a green glow. The HumanNeeded panel shows each agent's state." width="800">
 
 # HUMAN_NEEDED
 
 **Know when your AI agent needs you, without watching it.**
 
-[![CI](https://github.com/human-needed/app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/human-needed/app/actions/workflows/ci.yml)
+The edges of your screen glow and a chime plays when Claude Code, Codex, Cursor or Cowork needs
+you or is done. Start a task, look away, come back when it's your turn.
+
+<a href="https://github.com/human-needed/app/releases/latest/download/HumanNeeded-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="44"></a>
+&nbsp;
+<a href="https://github.com/human-needed/app/releases/latest/download/HumanNeeded-macos-universal.dmg"><img src="https://img.shields.io/badge/Download_for_macOS-111111?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" height="44"></a>
+
+Free · Windows 10 and 11, macOS (Apple silicon and Intel) · No account · Runs on your computer
+
+[Set up your agent](#set-up-your-agent) · [FAQ](#faq) · [All releases](https://github.com/human-needed/app/releases) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
+
 [![Release](https://img.shields.io/github/v/release/human-needed/app?include_prereleases&label=release)](https://github.com/human-needed/app/releases)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE)
-![Platforms: Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
-
-[Website](https://human-needed.com) · [Download](https://github.com/human-needed/app/releases/latest) · [Setup guides](https://human-needed.com/start/) · [Report a bug](https://github.com/human-needed/app/issues/new/choose)
 
 </div>
-
-HumanNeeded is a free tray app for Windows and macOS, with its source code public. It listens
-to your coding agents and tells you when one is **working**, **needs you**, or is **done**: the
-edges of your screen glow in the state's colour and a short chime plays. Start a task, look away, and come
-back when it's your turn.
 
 ## Features
 
@@ -27,32 +29,34 @@ back when it's your turn.
 - 🔔 **Chimes** for "needs you" and "done", with 15 sounds and melodies to choose from.
 - 🤖 **Every agent, one signal:** Claude Code, Codex, Cursor and Cowork / Claude on the web.
   "Needs you" always wins.
-- 🎨 **Your look:** colour, animation and sound for each state, plus brightness and volume.
+- 🎨 **Your look:** colour, animation and sound for each state.
 - 🌙 **Quiet hours:** sounds off and the glow dimmed overnight. Mute for an hour from the tray.
 - 🧹 **Clears itself:** if an agent crashes or you close it, its signal goes away on its own.
 - 🔒 **Local first:** everything runs on your computer (see [Privacy](#privacy)).
 - 💡 **Optional desk light:** add the [HumanNeeded puck](#the-puck-optional) to see it across
   the room.
 
-## Screenshots
-
-| Tray panel | Edge glow |
-|---|---|
-| <img src="docs/images/panel.jpg" alt="Tray panel: brightness and volume, and the four states Working, Needs you, Done and Idle" width="340"> | <img src="docs/images/hero.png" alt="The screen edges glow orange: an agent needs you" width="440"> |
-
 ## Install
 
-Download the latest release from **[Releases](https://github.com/human-needed/app/releases/latest)**:
+1. **Download** the installer for your computer with the buttons above. Each
+   [release](https://github.com/human-needed/app/releases/latest) has:
 
-| OS | File |
-|---|---|
-| Windows 10 / 11 (x64) | `HumanNeeded-windows-x64-setup.exe`: installs for your user, no admin needed |
-| macOS (Apple silicon and Intel) | `HumanNeeded-macos-universal.dmg`: drag HumanNeeded to Applications |
+   | Your computer | File |
+   |---|---|
+   | Windows 10 / 11 (x64) | `HumanNeeded-windows-x64-setup.exe`: installs for your user, no admin needed |
+   | Mac (Apple silicon and Intel) | `HumanNeeded-macos-universal.dmg`: drag HumanNeeded to Applications |
 
-> [!NOTE]
-> The app isn't code-signed yet, so Windows and macOS warn you once. See
-> [Installing an unsigned app](#installing-an-unsigned-app) below. After that, the app updates
-> itself (signed updates, installed when you choose to restart).
+2. **Open it.** The app isn't code-signed yet, so Windows or macOS warns you once:
+   [here's how to get past it](#installing-an-unsigned-app).
+3. **Follow the welcome screen.** It shows you the glow and chime, finds the agents on your
+   computer, and starts the app when you sign in. Then [set up your agent](#set-up-your-agent).
+
+The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
+right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**. It updates itself:
+new versions are checked and signed, and installed when you choose to restart.
+
+<details>
+<summary><b>Installing an unsigned app</b> (the Windows or macOS warning)</summary>
 
 ### Installing an unsigned app
 
@@ -85,16 +89,15 @@ certutil -hashfile HumanNeeded-windows-x64-setup.exe SHA256
 shasum -a 256 HumanNeeded-macos-universal.dmg
 ```
 
-The app lives in the tray (Windows) or the menu bar (macOS). Click the ring icon for the panel;
-right-click it for **Screen edge glow**, **Mute for 1 hour** and **Quit**.
+</details>
 
-## Quick start: connect your agents
+## Set up your agent
 
-Install the app first, then add the agents you use. Full guides:
-**[human-needed.com/start](https://human-needed.com/start/)**.
+Install the app first, then add the agents you use. The panel shows each one as **Connected**
+once it has sent its first signal. Full guides: **[human-needed.com/start](https://human-needed.com/start/)**.
 
-<details>
-<summary><b>Claude Code</b> (terminal, desktop app, VS Code)</summary>
+**Claude Code** (terminal, desktop app, VS Code): run these two commands, then start a new
+session.
 
 ```bash
 claude plugin marketplace add human-needed/plugins
@@ -104,9 +107,8 @@ claude plugin marketplace add human-needed/plugins
 claude plugin install humanneeded@humanneeded
 ```
 
-Then turn on auto-update: in Claude Code type `/plugin` → **Marketplaces** → **humanneeded** →
-**Enable auto-update**. Start a new session.
-</details>
+To keep it up to date: in Claude Code type `/plugin` → **Marketplaces** → **humanneeded** →
+**Enable auto-update**.
 
 <details>
 <summary><b>Codex</b></summary>
@@ -128,11 +130,9 @@ at once. It shows working and done (Cursor has no "needs you" hook).
 <summary><b>Cowork and Claude on the web</b> (cloud)</summary>
 
 Cloud tasks run in a cloud machine that can't reach your computer. Install the Claude Code
-plugin above, then in the app turn on **Settings → Agents → Cowork**. The app links to the
+plugin above, then in the app turn on **Cowork** in the agents list. The app links to the
 HumanNeeded relay with your Claude account (signed in to Claude on this computer).
 </details>
-
-The panel shows each agent as **Connected** once it has sent an event.
 
 ## How it works
 
@@ -176,6 +176,20 @@ it. More at **[human-needed.com](https://human-needed.com)**.
 ## FAQ
 
 <details>
+<summary><b>Is it free?</b></summary>
+
+Yes. No account, no subscription, no ads. The code is public under the
+[Functional Source License](#license).
+</details>
+
+<details>
+<summary><b>Can it see my code or my prompts?</b></summary>
+
+No. Your agents only tell it their state (working, needs you, done), and everything stays on your
+computer. The optional cloud link for Cowork sends only those states. See [Privacy](#privacy).
+</details>
+
+<details>
 <summary><b>Do I need the puck?</b></summary>
 
 No. The app works on its own with the screen-edge glow and chimes. The puck is an extra.
@@ -186,7 +200,8 @@ No. The app works on its own with the screen-edge glow and chimes. The puck is a
 
 It never takes focus or clicks. It does show in screenshots and screen shares; pause it from
 the tray menu before you share your screen.
-"Working" glows softly and "Idle" never glows. Turn it off any time from the tray menu.
+By default only "Needs you" and "Done" glow, briefly for "Done". Change each state in the panel,
+or turn the glow off any time from the tray menu.
 </details>
 
 <details>
@@ -214,15 +229,15 @@ to the app's [event API](docs/DEVELOPMENT.md#for-agent-integrations-app-events-2
 
 | Problem | Fix |
 |---|---|
-| An agent shows **Not set up** | Install its plugin or hooks ([quick start](#quick-start-connect-your-agents)), then start a new session. Codex: approve the hooks. |
+| An agent shows **Not set up** | Install its plugin or hooks ([set up your agent](#set-up-your-agent)), then start a new session. Codex: approve the hooks. |
 | Nothing lights up and you use a proxy | Add `127.0.0.1` to `NO_PROXY`. The panel shows the exact line. |
 | "Agents can't reach the app" | Another program uses port 24816. Close it or restart your computer. |
-| No sound | Check the volume and mute button in the panel, and quiet hours in Settings. |
+| No sound | Open the state ("Needs you", "Done") in the panel and check its sound and volume; check quiet hours in Settings and "Mute for 1 hour" in the tray menu. |
 | Cursor never shows "needs you" | Cursor has no hook for it yet: only working and done. |
 | Windows or macOS won't open the installer or app | See [Installing an unsigned app](#installing-an-unsigned-app). |
 
-Still stuck? [Open an issue](https://github.com/human-needed/app/issues/new/choose) with the log
-from **Settings → Advanced → Open log**.
+Still stuck? In the panel, open **Settings → Advanced → Copy diagnostics**, then
+[open an issue](https://github.com/human-needed/app/issues/new/choose) and paste them in.
 
 ## Uninstall
 
