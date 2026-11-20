@@ -90,7 +90,8 @@ fn sound(on: bool, s: &str, volume: u8) -> Option<Sound> {
     })
 }
 
-/// OPEN with the user (PM, 11-20): does "Working" glow on the screen by default? Off for now.
+/// Decided by the user (11-20): "Working" doesn't glow on the screen on a new install. Only the
+/// default: a saved choice (alerts.json) is kept as it is.
 pub const WORKING_GLOW_BY_DEFAULT: bool = false;
 
 /// OPEN with the user (PM, 11-20): the app owns each state's look and sound and pushes them to
@@ -594,6 +595,22 @@ mod tests {
         assert_eq!(b.states["done"].screen.color, "#010203");
         std::fs::write(f.as_ref().unwrap(), "nope").unwrap();
         assert_eq!(Alerts::load(&f), Alerts::default());
+    }
+
+    #[test]
+    fn working_glow_is_off_only_by_default() {
+        assert!(
+            !Alerts::default().states["working"].screen.on,
+            "new installs"
+        );
+        let d = tempfile::tempdir().unwrap();
+        let f = Some(d.path().join("alerts.json"));
+        let saved = json!({"states":{"working":{"screen":{"on":true,"light":"spin"}}}});
+        std::fs::write(f.as_ref().unwrap(), saved.to_string()).unwrap();
+        assert!(
+            Alerts::load(&f).states["working"].screen.on,
+            "an existing user's choice stays"
+        );
     }
 
     #[test]
