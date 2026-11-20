@@ -7,6 +7,9 @@ All notable changes to the HumanNeeded app. The format follows
 ## [Unreleased]
 
 ### Added
+- Settings → Advanced → Uninstall HumanNeeded: removes the app, its login item, the cloud
+  link's credential, log and cache, and your settings unless you keep them. The Windows
+  uninstaller now cleans up the same way.
 - Works without a puck: the screen edges glow on every monitor and the computer plays the
   chimes. Turn the glow on or off from the tray menu or Settings.
 

@@ -1756,6 +1756,7 @@ name = "humanneeded"
 version = "0.9.0-beta.18"
 dependencies = [
  "cpal",
+ "dirs 5.0.1",
  "hn-core",
  "hn-engine",
  "serde",
@@ -1765,6 +1766,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "windows-sys 0.59.0",
  "winreg 0.52.0",

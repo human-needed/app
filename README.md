@@ -197,6 +197,23 @@ to the app's [event API](docs/DEVELOPMENT.md#for-agent-integrations-app-events-2
 Still stuck? [Open an issue](https://github.com/human-needed/app/issues/new/choose) with the log
 from **Settings → Advanced → Open log**.
 
+## Uninstall
+
+In the app, open **Settings → Advanced → Uninstall HumanNeeded…**. Choose whether to keep your
+settings for a later install. It removes the app, its start-at-login entry, the cloud link's saved
+credential, its log and its cache, and nothing else.
+
+- **Windows:** you can also use **Settings → Apps → Installed apps → HumanNeeded → Uninstall**.
+  Tick **Delete the application data** to remove your settings too.
+- **macOS:** if you already dragged the app to the Trash, remove what it left:
+  `~/Library/Application Support/HumanNeeded` (settings and log),
+  `~/Library/LaunchAgents/HumanNeeded.plist` (start at login), the `com.human-needed.app` folders
+  in `~/Library/Caches` and `~/Library/WebKit`, and the **HumanNeeded** item in Keychain Access.
+
+Your agents' plugins and hooks belong to the agents: remove the Claude Code plugin with
+`claude plugin uninstall humanneeded@humanneeded`, and our entries from `~/.codex/hooks.json`
+and `~/.cursor/hooks.json`.
+
 ## Build from source
 
 You need [Rust](https://rustup.rs) (stable). On Linux, also Tauri's
