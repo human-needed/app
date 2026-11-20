@@ -211,6 +211,23 @@ function loginItem() {
   return MAC && existsSync(la) && readdirSync(la).some((f) => /humanneeded/i.test(f));
 }
 
+// The app turns the login item on during startup: wait until it is up (hub + "ui: ready"),
+// then give the login item a few more seconds. Avoids racing a just-started app.
+async function firstRun() {
+  console.log("first run on a clean machine");
+  const logf = join(DATA, "logs/app.log");
+  const ready = () => { try { return readFileSync(logf, "utf8").includes("ui: ready"); } catch { return false; } };
+  let up = false;
+  for (let i = 0; i < 60 && !up; i++) {
+    up = (await raw("/v1/health")).status === 200 && ready();
+    if (!up) await sleep(500);
+  }
+  if (!ok(up, "app is up (hub answers, 'ui: ready' logged) within 30 s")) return;
+  let on = false;
+  for (let i = 0; i < 20 && !(on = loginItem()); i++) await sleep(500);
+  ok(on, "starts at login is on (D-027)");
+}
+
 // ---- after uninstall ----------------------------------------------------------------------
 async function removed() {
   console.log("after uninstall");
@@ -246,7 +263,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (mode === "release") await release(rest.find((a) => !a.startsWith("--")));
     else if (mode === "installed") await installed(val("--expect"), flag("--preview"));
     else if (mode === "removed") await removed();
-    else if (mode === "first-run") { console.log("first run on a clean machine"); ok(loginItem(), "starts at login is on (D-027)"); }
+    else if (mode === "first-run") await firstRun();
     else { console.log("usage: release [tag] | installed [--expect v] [--preview] | removed"); process.exit(2); }
   } catch (e) { ok(false, "check crashed", e.message); }
   console.log(failed ? `\n${failed} FAILED` : "\nall ok");
