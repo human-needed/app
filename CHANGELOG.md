@@ -9,6 +9,8 @@ All notable changes to the HumanNeeded app. The format follows
 ### Added
 - When an update is ready, the panel says so at the top: **Update now** installs it and restarts.
   It still installs by itself at a quiet moment.
+- Every state card says the same kind of thing: "Edges", "Sound", "Edges · Sound", "Puck only"
+  or "Off" (no durations).
 - A welcome screen on first run: see the glow and chime, connect your agents (it says which
   ones are on this computer and when each one connects), and choose to start at sign-in.
 - Settings → Advanced → Uninstall HumanNeeded: removes the app, its login item, the cloud
