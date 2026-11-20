@@ -21,6 +21,9 @@ pub struct Sound {
     pub repeat: u8,
 }
 
+/// How long a preview of a state with no time limit lasts (seconds), here and on the puck.
+pub const UNTIMED_PREVIEW_S: u64 = 5;
+
 pub struct Here {
     puck: SimPuck,
 }
@@ -36,10 +39,17 @@ impl Here {
         let mut puck = SimPuck::with_fw2_defaults("app");
         // The glow fades in first: a state's duration is its light effect alone.
         puck.machine.lead_ms = hn_sim::machine::LIGHT_FADE_MS;
+        // A preview of "while it works" / "until you answer" is a short demo, not a minute.
+        puck.machine.untimed_preview_ms = hn_sim::machine::LIGHT_FADE_MS + UNTIMED_PREVIEW_S * 1000;
         Self { puck }
     }
 
     /// Takes these settings (`key → value`, as on a puck); bad ones are skipped.
+    /// Ends a preview now (Stop, or a setting changed).
+    pub fn end_preview(&mut self) {
+        self.puck.machine.end_test();
+    }
+
     pub fn configure(&mut self, settings: &BTreeMap<String, String>) {
         for (k, v) in settings {
             if self.puck.settings.get(k) != Some(v) {
@@ -144,11 +154,11 @@ mod tests {
     fn previews_flashes_and_clears_end_on_time() {
         let mut h = Here::new();
         h.configure(&Alerts::default().computer_settings());
-        // A preview of a state with no limit shows at once and ends after 60 s (D-060).
+        // A preview of a state with no limit shows at once and ends after its fade-in and 5 s.
         h.handle("TEST needs", 0);
         assert_eq!(h.shown_line(1), "test:needs");
-        assert_eq!(h.shown_line(59_999), "test:needs");
-        assert_eq!(h.shown_line(60_000), "idle");
+        assert_eq!(h.shown_line(5_249), "test:needs");
+        assert_eq!(h.shown_line(5_250), "idle");
         // A real state takes over a preview at once.
         h.handle("TEST done", 20_000);
         h.handle("SNAP 30 0000000a:needs", 20_100);

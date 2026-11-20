@@ -407,15 +407,41 @@ impl Engine {
                 let here = self.here(&line);
                 // The screen glow and the tray follow at once (a preview starts now).
                 self.changed();
-                if self.puck_ready() {
-                    self.link.request(line.clone()).await
-                } else {
-                    here
+                if !self.puck_ready() {
+                    return here;
                 }
+                // The puck previews a state with no time limit for a minute (usb-protocol 1.3)
+                // and can't be told to stop: give it a short duration just for this preview.
+                let untimed = match (cmd, words.next()) {
+                    ("TEST", Some(st)) if ["needs", "working", "idle"].contains(&st) => self
+                        .alerts_get()
+                        .states
+                        .get(st)
+                        .is_some_and(|a| a.puck.duration == 0)
+                        .then(|| st.to_string()),
+                    _ => None,
+                };
+                let Some(st) = untimed else {
+                    return self.link.request(line.clone()).await;
+                };
+                let short = format!("SET {st}.duration {}", crate::here::UNTIMED_PREVIEW_S);
+                self.link.request(short).await?;
+                let r = self.link.request(line.clone()).await;
+                let _ = self.link.request(format!("SET {st}.duration 0")).await;
+                r
             }
             _ if PUCK_ONLY.contains(&cmd) || self.puck_ready() => self.link.request(line).await,
             _ => self.here(&line),
         }
+    }
+
+    /// Stops a preview on this computer (Settings, the state page's Stop). The puck has no
+    /// command for it: its preview of a limited state runs out, of an untimed one after a few
+    /// seconds (see [`Engine::puck`]).
+    pub fn stop_preview(&self) {
+        self.shared.lock().unwrap().here.end_preview();
+        self.publish();
+        self.changed();
     }
 
     /// A command for the puck alone (e.g. its test light); fails without one.
@@ -453,6 +479,8 @@ impl Engine {
         a.save(&self.alerts_path())?;
         {
             let mut s = self.shared.lock().unwrap();
+            // A change stops a running preview: what shows next is the new look.
+            s.here.end_preview();
             s.here.configure(&a.computer_settings());
             s.alerts = a;
         }

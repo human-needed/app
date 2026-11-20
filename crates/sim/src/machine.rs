@@ -102,6 +102,9 @@ pub struct Machine {
     /// Longest preview (ms): `None` = the state's own duration (hn-usb/2 1.3); older
     /// firmware's 10 s is `Some(TEST_MAX_MS)`.
     pub preview_cap: Option<u64>,
+    /// How long a preview of a state with no limit lasts (firmware: [`UNTIL_CLEARED_PREVIEW_MS`];
+    /// the app's own screen uses a short demo instead).
+    pub untimed_preview_ms: u64,
     /// Added to every limited duration: the fade-in before the effect starts
     /// ([`LIGHT_FADE_MS`] on outputs that fade; the fade-out follows the state's end).
     pub lead_ms: u64,
@@ -112,6 +115,7 @@ impl Machine {
         Self {
             durations,
             preview_cap: None,
+            untimed_preview_ms: UNTIL_CLEARED_PREVIEW_MS,
             ..Default::default()
         }
     }
@@ -229,7 +233,7 @@ impl Machine {
     /// limit), and at most [`Machine::preview_cap`].
     pub fn start_test(&mut self, st: St, now: u64) {
         let d = match self.shown_ms(st) {
-            0 => UNTIL_CLEARED_PREVIEW_MS,
+            0 => self.untimed_preview_ms,
             d => d,
         };
         let ms = self.preview_cap.map_or(d, |cap| d.min(cap));

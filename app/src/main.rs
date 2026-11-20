@@ -120,6 +120,10 @@ async fn puck_action(engine: State<'_, Engine>, action: String, arg: Option<Stri
         ("mute", Some(m)) => format!("MUTE {}", safe_token(m)?),
         // The Puck page's Test: the puck's own hello light, nothing on the screen.
         ("puck_test", None) => return engine.puck_only("TEST hello").await.map(|_| ()),
+        ("stop", None) => {
+            engine.stop_preview();
+            return Ok(());
+        }
         ("reboot", None) => "REBOOT".into(),
         _ => return Err("unknown action".into()),
     };

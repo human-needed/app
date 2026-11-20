@@ -281,3 +281,73 @@ fn connect(port: u16) -> std::net::TcpStream {
     }
     panic!("hub on {port} not reachable: {:?}", last)
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_untimed_preview_is_a_short_demo_and_stops_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (e, _) = start("untimed", PuckTarget::None, dir.path()).await;
+    // "Needs you" has no time limit by default: its preview lasts the fade-in and 5 s.
+    let mut rx = e.screen();
+    rx.borrow_and_update();
+    e.puck("TEST needs").await.unwrap();
+    let (look, _) = next_look(&mut rx).await;
+    assert!(look.is_some_and(|l| l.preview));
+    let (look, took) = next_look(&mut rx).await;
+    assert!(look.is_none(), "cleared");
+    assert!(
+        took >= Duration::from_millis(5_150) && took < Duration::from_millis(5_700),
+        "{took:?}"
+    );
+
+    // Stop ends it at once.
+    e.puck("TEST working").await.unwrap();
+    assert_eq!(e.computer_now().0, "test:working");
+    e.stop_preview();
+    assert_eq!(e.computer_now().0, "idle");
+
+    // So does changing a setting.
+    e.puck("TEST needs").await.unwrap();
+    assert_eq!(e.computer_now().0, "test:needs");
+    let mut a = e.alerts_get();
+    a.states.get_mut("needs").unwrap().screen.color = "#123456".into();
+    e.alerts_set(a).await.unwrap();
+    assert_eq!(e.computer_now().0, "idle");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_puck_previews_an_untimed_state_briefly_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = hn_engine::alerts::Alerts {
+        puck_imported: true,
+        ..Default::default()
+    };
+    a.save(&Some(dir.path().join("alerts.json"))).unwrap();
+    let sim = Sim::new("2.0.0", None);
+    let (e, _) = start("puck-untimed", PuckTarget::Sim(sim.clone()), dir.path()).await;
+    let setting = |k: &str| sim.puck.lock().unwrap().settings.get(k).cloned();
+    for _ in 0..80 {
+        if e.status().await["puck"]["connected"] == true && setting("needs.duration").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(setting("needs.duration").as_deref(), Some("0"));
+    let t = std::time::Instant::now();
+    e.puck("TEST needs").await.unwrap();
+    // The puck got a short duration just for the preview; its own setting is back to 0.
+    assert_eq!(setting("needs.duration").as_deref(), Some("0"));
+    let mut shown = sim.subscribe();
+    shown.borrow_and_update();
+    tokio::time::timeout(
+        Duration::from_secs(8),
+        shown.wait_for(|s| !s.starts_with("test:")),
+    )
+    .await
+    .expect("the puck's preview ends")
+    .unwrap();
+    let took = t.elapsed();
+    assert!(
+        took >= Duration::from_millis(5_000) && took < Duration::from_millis(6_500),
+        "{took:?}"
+    );
+}

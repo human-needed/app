@@ -223,6 +223,7 @@ function renderState() {
     html = section('Light', 'puck', a.puck.on, lookBody('puck', a.puck, id));
     if (a.puck_sound) html += section('Sound', 'puck_sound', a.puck_sound.on, soundBody('puck_sound', a.puck_sound));
   }
+  previewButton();
   if (put($('st-body'), html)) {
     $('st-body').querySelectorAll('input[type=range]').forEach(paintRange);
     fit();
@@ -277,8 +278,21 @@ $('st-body').addEventListener('input', (e) => {
 });
 $('tab-c').onclick = () => { tab = 'c'; renderState(); };
 $('tab-p').onclick = () => { if (puckOn()) { tab = 'p'; renderState(); } };
+// While a preview runs, Preview becomes Stop.
+const previewing = () => String((st && st.output && st.output.shown) || '').startsWith('test:');
+function previewButton() {
+  const b = $('st-prev');
+  const stop = previewing();
+  if (b.dataset.stop === String(stop)) return;
+  b.dataset.stop = stop;
+  b.lastChild.textContent = stop ? 'Stop' : 'Preview';
+}
 $('st-prev').onclick = async () => {
-  try { await invoke('puck_action', { action: 'test', arg: cur }); toast(`Previewing "${STATE_NAME[cur]}"`); } catch (e) { fail(e); }
+  try {
+    if (previewing()) await invoke('puck_action', { action: 'stop' });
+    else { await invoke('puck_action', { action: 'test', arg: cur }); toast(`Previewing "${STATE_NAME[cur]}"`); }
+  } catch (e) { fail(e); }
+  refresh();
 };
 $('st-reset').onclick = () => {
   if (!D || !D[cur]) return;
