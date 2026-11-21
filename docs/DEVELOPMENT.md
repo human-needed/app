@@ -19,13 +19,12 @@ under a lease, so the light always clears itself if anything goes wrong.
 Releases on the [Releases](https://github.com/human-needed/app/releases) page (built by
 `.github/workflows/release.yml` from a `v*` tag). They are **unsigned**, so the OS warns once.
 
-**Channels.** A stable version (`v1.0.0`) is published as "latest": every installed app, betas
-included, updates to it through `releases/latest/download/latest.json`. From 1.0 on, a beta
-(`v1.1.0-beta.1`) is published as a pre-release, which is never "latest", so stable users don't
-get it; testers install it by hand. Betas before 1.0 (`v0.9.0-beta.N`) stay "latest".
+**Versions** are plain `0.MINOR.PATCH`, with no beta or other qualifiers: small fixes bump
+PATCH (`0.10.1`), bigger changes bump MINOR (`0.11.0`). Every release is "latest", and every
+installed app updates to it through `releases/latest/download/latest.json`.
 
 **Release notes** come from `CHANGELOG.md` (`scripts/release_notes.py`): the version's section,
-or `[Unreleased]` for a beta without one, under a download table and the first-install steps.
+or `[Unreleased]` if it has none, under the download link and the first-install steps.
 Write changelog lines for users: what they'll notice, not how it's built.
 
 **Releasing 1.0.0** (or any stable version):
