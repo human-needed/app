@@ -10,7 +10,7 @@
 <a href="https://github.com/human-needed/app/releases/latest"><img src="https://img.shields.io/badge/Windows-Download-24292f?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"></a>
 <img src="https://img.shields.io/badge/macOS-Coming_soon-8b949e?style=for-the-badge&logo=apple&logoColor=white" alt="macOS: coming soon">
 
-<img src="docs/images/hero.gif" alt="An AI agent works, then asks for permission: the screen edges pulse orange. After the click it finishes: the edges pulse green." width="800">
+<img src="docs/images/hero.webp" alt="An AI agent works, then asks for permission: the screen edges pulse orange. After the click it finishes: the edges pulse green." width="800">
 
 </div>
 
@@ -29,7 +29,7 @@ something else and forget it's waiting for you. HUMAN_NEEDED watches for you.
 ## Make it yours
 
 <p align="center">
-<img src="docs/images/panel.png" alt="The HUMAN_NEEDED panel next to the Needs you settings: light, colour, brightness, duration, sound and volume" width="700">
+<img src="docs/images/panel.png" alt="The HUMAN_NEEDED panel next to the Needs you settings: light, colour, brightness, duration, sound and volume" width="800">
 </p>
 
 - **Fully customizable.** Colour, light, brightness, duration and sound for each state, or keep
