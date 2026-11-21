@@ -6,6 +6,8 @@ All notable changes to the HumanNeeded app. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-21
+
 ### Fixed
 - Cowork and Claude on the web: a state could reach your PC minutes late when the cloud link
   had been quiet for a while, because some home routers hold back traffic on a quiet
