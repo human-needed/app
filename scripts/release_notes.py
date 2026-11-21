@@ -38,8 +38,8 @@ def notes(version, changelog):
         "Mac is coming soon.",
         "",
         "- **Already installed?** Nothing to do: the app updates itself.",
-        "- **First install:** Windows may warn you once. "
-        f"[Here's what to click](https://github.com/{REPO}#windows-warning).",
+        "- **First install:** if Windows says \"Windows protected your PC\", click **More info**, "
+        "then **Run anyway**. You only do this once.",
         "- **Then connect Claude:** [human-needed.com/start](https://human-needed.com/start/).",
         "",
     ]
