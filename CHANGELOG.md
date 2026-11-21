@@ -6,6 +6,21 @@ All notable changes to the HumanNeeded app. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-21
+
+The first public release, for Claude on Windows.
+
+### Added
+- The edges of your screen glow orange and a soft chime plays when Claude needs you, and glow
+  green when it's done. On every monitor, without pop-ups or stealing focus.
+- Works with Cowork and Claude on the web too, through the optional cloud link. Only the
+  chat's state is sent, never your chats or files.
+- Make it yours: colour, light, brightness, duration and sound for each state, and quiet hours.
+- The app updates itself. Coming from a beta? Nothing to do.
+- Mac, Codex and Cursor are coming soon.
+
+## [0.9.0-beta.25] - 2026-11-20
+
 ### Added
 - **Connect Claude** opens the setup guide on human-needed.com/start.
 - When an update is ready, the panel says so at the top: **Update now** installs it and restarts.
