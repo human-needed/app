@@ -23,6 +23,7 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 getrandom = "0.3"
+socket2 = { version = "0.6", features = ["all"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(windows)'.dependencies]

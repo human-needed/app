@@ -49,8 +49,51 @@ pub const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
 pub const OK_WAIT: Duration = Duration::from_secs(30);
 const BACKOFF_MIN: Duration = Duration::from_secs(5);
 const BACKOFF_MAX: Duration = Duration::from_secs(120);
+/// TCP keepalive on the relay socket: idle time before the first probe, and between probes.
+/// Home routers and ISPs can hold back inbound packets on a flow idle for about 5 min,
+/// which delayed cloud states until the next 9-min ping (plugins#24). Keepalive keeps the
+/// path open at the TCP layer, with no WebSocket messages and no relay cost.
+pub const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 /// A connection that lasted this long resets the backoff.
 const STABLE: Duration = Duration::from_secs(60);
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Like `connect_async`, but on a TCP socket we open ourselves with keepalive on.
+async fn connect_ws(url: &str) -> Result<(Ws, ()), tokio_tungstenite::tungstenite::Error> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::error::{Error, UrlError};
+    let req = url.into_client_request()?;
+    let uri = req.uri();
+    let host = uri
+        .host()
+        .ok_or(Error::Url(UrlError::NoHostName))?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("wss") {
+            443
+        } else {
+            80
+        });
+    let tcp = tokio::net::TcpStream::connect((host.as_str(), port)).await?;
+    let _ = tcp.set_nodelay(true);
+    if let Err(e) = set_keepalive(&tcp) {
+        log!("cloud: couldn't turn on TCP keepalive: {e}");
+    }
+    let (ws, _) = tokio_tungstenite::client_async_tls(req, tcp).await?;
+    Ok((ws, ()))
+}
+
+fn set_keepalive(tcp: &tokio::net::TcpStream) -> std::io::Result<()> {
+    let ka = socket2::TcpKeepalive::new()
+        .with_time(TCP_KEEPALIVE)
+        .with_interval(TCP_KEEPALIVE);
+    socket2::SockRef::from(tcp).set_tcp_keepalive(&ka)
+}
 /// How often the account files are read again (sign-in changes, new accounts).
 const RESCAN: Duration = Duration::from_secs(60);
 
@@ -424,9 +467,7 @@ impl Cloud {
 
     async fn unbind(&self, k: &str, id: &Identity) {
         let r = tokio::time::timeout(Duration::from_secs(10), async {
-            let (mut ws, _) = tokio_tungstenite::connect_async(&self.cfg.ws_url)
-                .await
-                .ok()?;
+            let (mut ws, _) = connect_ws(&self.cfg.ws_url).await.ok()?;
             ws.send(WsMsg::text(hello(k, id))).await.ok()?;
             tokio::time::sleep(Duration::from_millis(1500)).await;
             ws.send(WsMsg::text(json!({"t": "unbind", "i": id.i}).to_string()))
@@ -660,11 +701,8 @@ impl Cloud {
         tx: &mpsc::Sender<Incoming>,
         on_change: &(dyn Fn() + Send + Sync),
     ) -> End {
-        let conn = tokio::time::timeout(
-            Duration::from_secs(15),
-            tokio_tungstenite::connect_async(&self.cfg.ws_url),
-        )
-        .await;
+        let conn =
+            tokio::time::timeout(Duration::from_secs(15), connect_ws(&self.cfg.ws_url)).await;
         let mut ws = match conn {
             Ok(Ok((ws, _))) => ws,
             Ok(Err(e)) => return End::Lost(e.to_string()),
@@ -800,6 +838,17 @@ mod tests {
         assert_eq!(PING_EVERY, Duration::from_secs(9 * 60));
         assert_eq!(CHECK_EVERY, Duration::from_secs(30 * 60));
         assert_eq!(OK_WAIT, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn relay_socket_has_tcp_keepalive() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        assert!(!socket2::SockRef::from(&tcp).keepalive().unwrap());
+        set_keepalive(&tcp).unwrap();
+        assert!(socket2::SockRef::from(&tcp).keepalive().unwrap());
+        assert!(TCP_KEEPALIVE < Duration::from_secs(5 * 60));
     }
 
     #[test]
