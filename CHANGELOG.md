@@ -7,7 +7,7 @@ All notable changes to the HumanNeeded app. The format follows
 ## [Unreleased]
 
 ### Added
-- **Connect your agents** opens the setup guides on human-needed.com/start.
+- **Connect Claude** opens the setup guide on human-needed.com/start.
 - When an update is ready, the panel says so at the top: **Update now** installs it and restarts.
   It still installs by itself at a quiet moment.
 - Every state card says the same kind of thing: "Edges", "Sound", "Edges · Sound", "Puck only"
@@ -21,10 +21,11 @@ All notable changes to the HumanNeeded app. The format follows
   chimes. Turn the glow on or off from the tray menu or Settings.
 
 ### Changed
+- The panel offers Claude only. Codex and Cursor show as coming soon.
 - The cloud link checks itself with the relay every 30 minutes instead of posting a test
   message every 3 minutes, and pings every 9 minutes: less traffic, and a broken link is still
   noticed and reconnected.
-- The panel's final design: a "Connect your agents" button opens the setup guides, one
+- The panel's final design: a "Connect Claude" button opens the setup guide, one
   "Cloud agents" switch turns on Cowork and other cloud agents, then the four states, the Puck
   and Settings.
 - New panel, built around your agents: each agent's last signal and switch, four state cards,

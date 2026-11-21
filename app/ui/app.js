@@ -3,7 +3,7 @@
 // commands). The app owns the alert settings: per state, the computer's screen edges and sound,
 // and the puck's light and sound (pushed to the puck when it connects).
 //
-// Views: main (Connect your agents, Cloud agents, state cards, Puck, Settings) · state (Computer /
+// Views: main (Connect Claude; Codex and Cursor coming soon, Cloud agents, state cards, Puck, Settings) · state (Computer /
 // Puck tabs) · Settings · Puck. Everything is drawn from two things: `st` (the app's status) and `A` (alert settings).
 'use strict';
 const $ = (id) => document.getElementById(id);
