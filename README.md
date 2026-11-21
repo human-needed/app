@@ -1,6 +1,6 @@
 <div align="center">
 
-# HUMAN_NEEDED
+<h1><img src="app/icons/icon.png" alt="" width="44" align="center">&nbsp;HUMAN_NEEDED</h1>
 
 **Stop watching Claude work. Your screen glows when it's done or needs you.**
 
