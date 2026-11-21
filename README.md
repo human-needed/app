@@ -48,7 +48,9 @@ something else and forget it's waiting for you. HUMAN_NEEDED watches for you.
 
 ## Cloud agents, privately
 
-<!-- VISUAL: cloud relay + privacy (WS-DESIGN; the user picks one of 3). -->
+<p align="center">
+<img src="docs/images/cloud.png" alt="A cloud agent sends only its state to the relay, which stores nothing and passes it to the HUMAN_NEEDED app on your PC. HUMAN_NEEDED never sees your chats, files or account information." width="800">
+</p>
 
 - **How it works:** in Cowork or Claude on the web, the plugin sends only the chat's state
   (working, needs you, done) to our relay, and the relay passes it to the app on your PC.
