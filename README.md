@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="docs/images/logo.svg" alt="" width="36" height="36">&nbsp;HUMAN_NEEDED</h1>
+<h1><img src="docs/images/logo.svg" alt="" width="36" height="36" align="middle">&nbsp;HUMAN_NEEDED</h1>
 
 **Stop watching Claude work. Your screen glows when it's done or needs you.**
 
