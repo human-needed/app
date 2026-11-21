@@ -61,6 +61,6 @@ something else and forget it's waiting for you. HUMAN_NEEDED watches for you.
 
 <div align="center">
 
-[Help and setup](https://human-needed.com/start/) · [Report a problem](https://github.com/human-needed/app/issues/new/choose) · [Developers](docs/DEVELOPMENT.md) · [License (FSL)](LICENSE)
+[Help and setup](https://human-needed.com/start/) · [Report a problem](https://github.com/human-needed/app/issues/new/choose) · [License (FSL)](LICENSE)
 
 </div>

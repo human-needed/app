@@ -38,8 +38,7 @@ cargo test --workspace
 ```
 
 You don't need a puck: `HN_PUCK=sim` runs a simulated one inside the app, and with no puck the
-app shows everything on screen. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the layout,
-the event API and the simulator.
+app shows everything on screen.
 
 ## Pull requests
 
