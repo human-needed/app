@@ -1,0 +1,34 @@
+# Once a day, record how many times the installers were downloaded (all releases).
+# GitHub only keeps a running total, so this saves one row per day to downloads.csv on the
+# `stats` branch: date, Windows installer total, Mac installer total, and new Windows today.
+name: download stats
+on:
+  schedule:
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Count and save
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          win=$(gh api "repos/$REPO/releases" --paginate -q '.[].assets[] | select(.name|endswith("setup.exe")) | .download_count' | awk '{s+=$1} END{print s+0}')
+          mac=$(gh api "repos/$REPO/releases" --paginate -q '.[].assets[] | select(.name|endswith(".dmg")) | .download_count' | awk '{s+=$1} END{print s+0}')
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git clone -q --depth 1 --branch stats "https://x-access-token:$GH_TOKEN@github.com/$REPO" s 2>/dev/null; then cd s; else
+            mkdir s && cd s && git init -q -b stats && git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$REPO"
+            echo "date,windows_total,mac_total,windows_new" > downloads.csv; fi
+          today=$(date -u +%F)
+          grep -q "^$today," downloads.csv && { echo "already recorded $today"; exit 0; }
+          prev=$(tail -n +2 downloads.csv | tail -1 | cut -d, -f2)
+          new=$(( win - ${prev:-$win} ))
+          echo "$today,$win,$mac,$new" >> downloads.csv
+          tail -5 downloads.csv
+          git add downloads.csv && git commit -qm "downloads $today" && git push -q origin stats
