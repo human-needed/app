@@ -30,7 +30,29 @@ def section(changelog, version):
 
 def notes(version, changelog):
     base = f"https://github.com/{REPO}/releases/download/v{version}"
-    lines = []
+    lines = [
+        "**Stop watching Claude work.** Your screen glows and a chime plays when Claude is done or "
+        "needs you.",
+        "",
+        f"**[Download for Windows]({base}/HumanNeeded-windows-x64-setup.exe)** (Windows 10 and 11). "
+        "Mac is coming soon.",
+        "",
+        "- **Already installed?** Nothing to do: the app updates itself.",
+        "- **First install:** Windows may warn you once. "
+        f"[Here's what to click](https://github.com/{REPO}#windows-warning).",
+        "- **Then connect Claude:** [human-needed.com/start](https://human-needed.com/start/).",
+        "",
+    ]
+    new = section(changelog, version)
+    if new:
+        # "### Added" reads better to users as "New".
+        new = re.sub(r"^### Added$", "### New", new, flags=re.M)
+        new = re.sub(r"^### Changed$", "### Improved", new, flags=re.M)
+        lines += ["## What's new", "", new, ""]
+    lines += ["---", "Each file's SHA-256 is in `SHA256SUMS.txt`. The source code is public under "
+              f"the [Functional Source License](https://github.com/{REPO}/blob/main/LICENSE)."]
+    return "\n".join(lines) + "\n"
+
 
 def main():
     if len(sys.argv) < 2:
