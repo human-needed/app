@@ -1,11 +1,10 @@
 <div align="center">
 
-<h1><img src="app/icons/icon.png" alt="" width="44" align="center">&nbsp;HUMAN_NEEDED</h1>
+<h1><img src="docs/images/logo.svg" alt="" width="36" height="36">&nbsp;HUMAN_NEEDED</h1>
 
 **Stop watching Claude work. Your screen glows when it's done or needs you.**
 
 [![Latest release](https://img.shields.io/github/v/release/human-needed/app?label=release&color=2ea44f)](https://github.com/human-needed/app/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/human-needed/app/total?color=blue)](https://github.com/human-needed/app/releases)
 [![License: FSL](https://img.shields.io/badge/license-FSL--1.1-lightgrey)](LICENSE)
 
 <a href="https://github.com/human-needed/app/releases/latest"><img src="https://img.shields.io/badge/Windows-Download-24292f?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"></a>
